@@ -77,13 +77,20 @@ function TvBar({ room, onSettings }: { room: PublicRoom; onSettings?: () => void
 }
 
 function Stepper({ label, value, min, max, step, show, onChange }: { label: string; value: number; min: number; max: number; step: number; show: (v: number) => string; onChange: (v: number) => void }) {
+  // Valor local: cliques rápidos não se perdem enquanto o servidor ainda não confirmou o anterior.
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  const change = (next: number) => {
+    setV(next);
+    onChange(next);
+  };
   return (
     <div className="stepper">
       <span>{label}</span>
       <div>
-        <button type="button" aria-label={`Diminuir ${label}`} disabled={value <= min} onClick={() => onChange(Math.max(min, value - step))}>−</button>
-        <output key={value}>{show(value)}</output>
-        <button type="button" aria-label={`Aumentar ${label}`} disabled={value >= max} onClick={() => onChange(Math.min(max, value + step))}>+</button>
+        <button type="button" aria-label={`Diminuir ${label}`} disabled={v <= min} onClick={() => change(Math.max(min, v - step))}>−</button>
+        <output key={v}>{show(v)}</output>
+        <button type="button" aria-label={`Aumentar ${label}`} disabled={v >= max} onClick={() => change(Math.min(max, v + step))}>+</button>
       </div>
     </div>
   );
