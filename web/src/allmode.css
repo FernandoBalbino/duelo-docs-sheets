@@ -100,3 +100,31 @@
 .sent-line.error { color: #b3261e; }
 .intro-count { font: 900 96px/1 var(--display); color: #0b57d0; animation: count-in 1s ease-out both; }
 .timeup-card > svg { display: block; margin: 0 auto 4px; }
+
+/* Sequência de desafios: lista do professor, entregar, pódio final top 5 */
+.picks { list-style: none; margin: 10px 0 2px; padding: 0 4px 0 0; display: flex; flex-direction: column; gap: 6px; max-height: 36vh; overflow: auto; }
+.picks li { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 8px; animation: chip-in 0.4s var(--spring) both; }
+.picks b { color: var(--gold); font-family: var(--display); text-align: right; }
+.picks select {
+  width: 100%; height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 9px; background: #121829; color: var(--text);
+  font: 600 13px var(--body); cursor: pointer;
+}
+.deliver {
+  margin-left: auto; height: 36px; padding: 0 18px; border: 0; border-radius: 18px; background: #0b57d0; color: #fff;
+  font: 500 14px 'Google Sans', Roboto, RobotoWeb, Arial, sans-serif; cursor: pointer; box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3);
+}
+.deliver:hover:not(:disabled) { background: #0842a0; }
+.deliver:disabled { background: #c4c7c5; cursor: default; }
+.person.done { border-color: rgba(76, 141, 255, 0.6); background: rgba(76, 141, 255, 0.12); }
+.person.done small { color: #9cc0ff; font-weight: 700; }
+.podium.five { gap: 10px; }
+.podium.five .pod { width: 19%; }
+.pod-4 .pedestal { height: 72px; background: linear-gradient(180deg, rgba(124, 92, 255, 0.35), rgba(124, 92, 255, 0.08)); }
+.pod-5 .pedestal { height: 54px; background: linear-gradient(180deg, rgba(124, 92, 255, 0.28), rgba(124, 92, 255, 0.06)); }
+.podium.five .pedestal b { font-size: 28px; }
+.final-list li { grid-template-columns: 38px 30px minmax(0, 0.7fr) minmax(0, 1.3fr) 52px; }
+.marks { display: flex; flex-wrap: wrap; gap: 4px; }
+.marks i { min-width: 34px; padding: 1px 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); font: normal 700 12px var(--body); text-align: center; color: var(--text); }
+.marks i.miss { color: var(--muted); opacity: 0.6; }
+.kid-marks { justify-content: center; margin: 4px 0 6px; }
+.kid-marks i { font-size: 14px; padding: 3px 10px; }

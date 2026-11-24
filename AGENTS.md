@@ -11,7 +11,10 @@ Professor na TV (notebook espelhado, 1366×768), alunos em Chromebook (1366×768
 - `server/game.ts`: regras sem rede, relógio e sorteio injetáveis. Toda regra nova ganha teste em `tests/game.test.ts` (`fakeClock`).
   Sorteio: quem duelou menos primeiro, evita a dupla anterior. Desafio: nunca repete para a dupla (`usedByPair`), evita o que um
   dos dois já fez (`usedByPlayer`). "Sortear de novo" não gasta desafio nem conta duelo. Empate com votos: os dois pontuam.
-- Contra todos (`game.ts`: `startAll`, `checkpoint`, `saveFrames`, `finishAll`): fases `work` → `reveal` → `ranking`.
+- Contra todos (`game.ts`: `startAll`, `beginTask`, `nextTask`, `checkpoint`, `saveFrames`, `finishAll`): a lista
+  `settings.picks` (ordem do professor) vira `room.picks`; cada desafio passa por `work` → `reveal` → `ranking`, e depois do
+  último vem `final` (pódio top 5 pela média de `room.board`). `work` acaba no tempo (`taskMinutes`) ou quando todos os
+  conectados entregaram (`saveFrames`).
   O aluno salva 1×/min (`player:content`, só a TV fica sabendo por `saved`) e manda os quadros do replay uma vez só
   (`player:frames`, até `MAX_FRAMES`/`MAX_FRAMES_CHARS`, `thinFrames`). Quem só tem o salvamento entra com um quadro.
   A TV calcula a % (`web/src/score.ts`) e devolve por `teacher:scores`.

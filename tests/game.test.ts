@@ -163,38 +163,59 @@ test('planilha: números em pt-BR, R$ e células vindas da rede filtradas', () =
   assert.deepEqual(parseCells(evil), { A1: { v: 'oi', fc: '#ff0000' } });
 });
 
-test('contra todos: prova com tempo total, salvamento, quadros, replay e ranking', () => {
+test('contra todos: desafios na ordem do professor, tempo por desafio, entregar, replay e pódio', () => {
   const { clock, advance } = fakeClock();
   const sent: string[] = [];
   const game = new Game({ clock, onFrames: (_r, id) => sent.push(id) });
   const room = game.createRoom();
   const [ana, beto, caio] = ['Ana', 'Beto', 'Caio'].map((n) => game.join(room.code, n).player.id);
-  game.setSettings(room, { game: 'all', allMinutes: 50, pick: 'd19' });
-  assert.throws(() => game.setSettings(room, { pick: 'x' }), GameError);
+  game.setSettings(room, { game: 'all', taskMinutes: 5, picks: ['d19', 's19', 'd01'] });
+  assert.throws(() => game.setSettings(room, { picks: ['x'] }), GameError);
+  assert.throws(() => game.setSettings(room, { picks: [] }), GameError);
   game.startAll(room);
-  const t = room.task!;
-  assert.equal(room.phase, 'work');
-  assert.equal(t.challengeId, 'd19');
-  assert.equal(t.endsAt - t.startsAt, 50 * 60_000);
+
+  // Desafio 1: termina pelo tempo; quem só salvou entra com um quadro.
+  let t = room.task!;
+  assert.deepEqual([room.phase, t.index, t.count, t.challengeId], ['work', 0, 3, 'd19']);
+  assert.equal(t.endsAt - t.startsAt, 5 * 60_000);
   assert.equal(game.checkpoint(room, ana, t.round, '<p>meio</p>'), true);
   assert.equal(game.checkpoint(room, beto, t.round + 1, '<p>outra</p>'), false);
   game.saveFrames(room, beto, t.round, ['<p>a</p>', '<p>ab</p>']);
   assert.throws(() => game.saveFrames(room, caio, t.round, Array(50).fill('x')), /grande/);
   game.addTime(room);
-  advance(55 * 60_000 + 4000);
+  advance(6 * 60_000 + 4000);
   assert.equal(room.phase, 'reveal');
-  assert.deepEqual(room.submissions.get(ana), ['<p>meio</p>']); // só tinha o salvamento: vira um quadro
+  assert.deepEqual(room.submissions.get(ana), ['<p>meio</p>']);
   assert.deepEqual(sent, [beto, ana]);
-  game.saveFrames(room, caio, t.round, ['<p>atrasado</p>']); // chegou depois do fim, ainda na revelação
+  game.saveFrames(room, caio, t.round, ['<p>atrasado</p>']); // chegou depois do fim, ainda no replay
+  assert.throws(() => game.nextTask(room), /resultado/);
   game.finishAll(room, { [ana]: 40, [beto]: 87, [caio]: 101, intruso: 50 });
   assert.equal(room.phase, 'ranking');
   assert.deepEqual(room.scores, { [ana]: 40, [beto]: 87 });
   assert.throws(() => game.saveFrames(room, caio, t.round, ['<p>tarde</p>']), /terminou/);
-  game.setSettings(room, { pick: 'intermediario', mode: 'docs' });
-  game.startAll(room);
-  assert.notEqual(room.task!.challengeId, 'd19');
-  assert.equal(CHALLENGE_BY_ID.get(room.task!.challengeId)!.level, 'intermediario');
+
+  // Desafio 2: todos os conectados entregam antes do tempo → replay na hora.
+  game.nextTask(room);
+  t = room.task!;
+  assert.deepEqual([room.phase, t.index, t.challengeId], ['work', 1, 's19']);
+  game.setOnline(room, caio, false);
+  game.saveFrames(room, ana, t.round, ['{}']);
+  assert.equal(room.phase, 'work');
+  game.saveFrames(room, beto, t.round, ['{}']);
+  assert.equal(room.phase, 'reveal');
+  game.finishAll(room, { [ana]: 60, [beto]: 30 });
+
+  // Desafio 3 e pódio final com a % de cada desafio.
+  game.nextTask(room);
+  assert.equal(room.task!.challengeId, 'd01');
   game.endWork(room);
+  game.finishAll(room, { [ana]: 100 });
+  game.nextTask(room);
+  assert.equal(room.phase, 'final');
+  assert.deepEqual(room.board, { [ana]: [40, 60, 100], [beto]: [87, 30, null] });
+  game.startAll(room); // jogar de novo com a mesma lista
+  assert.equal(room.task!.index, 0);
   game.restart(room);
   assert.equal(room.task, null);
+  assert.equal(room.board, null);
 });

@@ -23,15 +23,18 @@ O servidor gratuito dorme quando ninguém usa: abra a TV um minuto antes da aula
 
 ## Modo contra todos
 
-Na configuração da sala, escolha **Contra todos**, o **tempo da partida** (ex.: 50 min) e o **desafio** (sortear um básico,
-sortear um intermediário ou escolher um da lista). Clique em **Começar para todos**:
+Na configuração da sala, escolha **Contra todos**, o **tempo de cada desafio** (ex.: 5 min), a **quantidade de desafios**
+(até 10) e **qual é cada um**, na ordem. Clique em **Começar para todos**:
 
-1. Todos os alunos recebem o mesmo modelo no Docs ou no Sheets. A TV mostra o modelo, o cronômetro e quem já salvou.
-   Botões: **+5 min** e **Encerrar e ver resultados**.
-2. No fim do tempo, a TV recolhe os trabalhos e mostra **um aluno por vez**: o trabalho dele à esquerda e o modelo à direita,
-   com um **replay rápido** (do documento em branco até o final) e a **barra de progresso** subindo junto até a % do modelo.
+1. Todos fazem o desafio 1 no Docs ou no Sheets. Quem terminar clica em **Entregar**. O desafio acaba quando **o tempo
+   acaba** ou quando **todos entregaram**. A TV mostra o modelo, o cronômetro e quem já entregou.
+   Botões: **+1 min** e **Encerrar e ver resultados**.
+2. A TV recolhe os trabalhos e mostra **um aluno por vez**: o trabalho dele à esquerda e o modelo à direita, com um
+   **replay rápido** (do documento em branco até o final) e a **barra de progresso** subindo junto até a % do modelo.
    Depois os critérios aparecem digitados, com ✓ verde / ✕ vermelho e som (igual à Roda do Alfabeto).
-3. **Ranking** com pódio de quem chegou mais perto do modelo. Cada aluno vê a própria % e a posição no Chromebook.
+3. Resultado do desafio (pódio e lista) e o botão **Próximo desafio**. Repete até o último.
+4. **Pódio final top 5** pela média da % de todos os desafios (quem faltou num desafio fica com 0 nele). Cada aluno vê no
+   Chromebook a média, a posição e a nota de cada desafio. **Jogar de novo** repete a mesma lista.
 
 **Como a % é calculada** (`web/src/score.ts`, roda na TV): metade é o texto (Docs) ou os valores (Sheets), comparados letra a
 letra (um erro de digitação tira pouco); a outra metade é cada formatação do modelo — estilo de título, negrito, cor,

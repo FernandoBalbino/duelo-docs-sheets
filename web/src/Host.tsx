@@ -1,10 +1,10 @@
 // Tela da TV (professor): sala de espera, sorteio, duelo lado a lado, votação ao vivo, resultado e corrida.
 import confetti from 'canvas-confetti';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { CHALLENGES, CHALLENGE_BY_ID } from '../../shared/challenges.ts';
+import { CHALLENGES } from '../../shared/challenges.ts';
 import type { PublicPlayer, PublicRoom, Side } from '../../shared/protocol.ts';
-import { LIMITS, MODES, fmtClock, type Settings } from '../../shared/rules.ts';
-import { AllWork, Ranking, Reveal } from './AllMode.tsx';
+import { LIMITS, MAX_PICKS, MODES, fmtClock, type Settings } from '../../shared/rules.ts';
+import { AllWork, Final, Ranking, Reveal } from './AllMode.tsx';
 import { DocsLogo, Icon, SheetsLogo } from './google/ui.tsx';
 import { act, send, useContent, useTick } from './net.ts';
 import Race from './Race.tsx';
@@ -17,7 +17,7 @@ const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export default function Host({ room }: { room: PublicRoom }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const canSet = room.phase === 'lobby' || room.phase === 'result' || room.phase === 'ranking';
+  const canSet = ['lobby', 'result', 'ranking', 'final'].includes(room.phase);
   let body: ReactNode;
   switch (room.phase) {
     case 'lobby': body = <Lobby room={room} />; break;
@@ -28,6 +28,7 @@ export default function Host({ room }: { room: PublicRoom }) {
     case 'work': body = <AllWork room={room} />; break;
     case 'reveal': body = <Reveal room={room} />; break;
     case 'ranking': body = <Ranking room={room} />; break;
+    case 'final': body = <Final room={room} />; break;
   }
   return (
     <div className={`tv phase-${room.phase}`}>
@@ -96,10 +97,30 @@ function Stepper({ label, value, min, max, step, show, onChange }: { label: stri
   );
 }
 
+// Lista de desafios do contra todos: os básicos e intermediários, separados por tipo.
+const CHALLENGE_OPTIONS = (['basico', 'intermediario'] as const).flatMap((level) => (['docs', 'sheets'] as const).map((kind) => (
+  <optgroup key={level + kind} label={`${kind === 'docs' ? 'Documentos' : 'Planilhas'} · ${level === 'basico' ? 'básico' : 'intermediário'}`}>
+    {CHALLENGES.filter((c) => c.kind === kind && c.level === level).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+  </optgroup>
+)));
+// Mais desafios na lista: completa com os próximos que ainda não estão nela.
+const resizePicks = (picks: string[], n: number) => {
+  const out = picks.slice(0, n);
+  for (const c of CHALLENGES) if (out.length < n && !out.includes(c.id)) out.push(c.id);
+  return out;
+};
+
 function SettingsPanel({ s }: { s: Settings }) {
   const set = async (patch: Partial<Settings>) => {
     const res = await send('teacher:settings', patch);
     if (!res.ok) alert(res.error);
+  };
+  // Valor local: a lista muda na hora, sem esperar o servidor confirmar.
+  const [picks, setPicks] = useState(s.picks);
+  useEffect(() => setPicks(s.picks), [s.picks]);
+  const setList = (next: string[]) => {
+    setPicks(next);
+    void set({ picks: next });
   };
   return (
     <div className="settings">
@@ -125,23 +146,23 @@ function SettingsPanel({ s }: { s: Settings }) {
         </>
       ) : (
         <>
-          <Stepper label="Tempo da partida" value={s.allMinutes} min={5} max={LIMITS.allMinutes[1]} step={5}
-            show={(v) => `${v} min`} onChange={(v) => set({ allMinutes: v })} />
-          <label className="pick">
-            <span>Desafio</span>
-            <select value={s.pick} onChange={(e) => set({ pick: e.target.value })}>
-              <option value="intermediario">Sortear um intermediário</option>
-              <option value="basico">Sortear um básico</option>
-              {(['intermediario', 'basico'] as const).flatMap((level) => (['docs', 'sheets'] as const).map((kind) => (
-                <optgroup key={level + kind} label={`${kind === 'docs' ? 'Documentos' : 'Planilhas'} · ${level === 'basico' ? 'básico' : 'intermediário'}`}>
-                  {CHALLENGES.filter((c) => c.kind === kind && c.level === level).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-                </optgroup>
-              )))}
-            </select>
-          </label>
+          <Stepper label="Tempo de cada desafio" value={s.taskMinutes} min={LIMITS.taskMinutes[0]} max={LIMITS.taskMinutes[1]} step={1}
+            show={(v) => `${v} min`} onChange={(v) => set({ taskMinutes: v })} />
+          <Stepper label="Quantidade de desafios" value={picks.length} min={1} max={MAX_PICKS} step={1}
+            show={(v) => String(v)} onChange={(n) => setList(resizePicks(picks, n))} />
+          <ol className="picks" aria-label="Desafios, na ordem">
+            {picks.map((id, i) => (
+              <li key={i}>
+                <b>{i + 1}º</b>
+                <select aria-label={`Desafio ${i + 1}`} value={id} onChange={(e) => setList(picks.map((x, k) => (k === i ? e.target.value : x)))}>
+                  {CHALLENGE_OPTIONS}
+                </select>
+              </li>
+            ))}
+          </ol>
         </>
       )}
-      {(s.game === 'duel' || !CHALLENGE_BY_ID.has(s.pick)) && <div className="seg" role="radiogroup" aria-label="Tipo de desafio">
+      {s.game === 'duel' && <div className="seg" role="radiogroup" aria-label="Tipo de desafio">
         <span>Tipo de desafio</span>
         <div>
           {MODES.map((m) => (
@@ -159,7 +180,7 @@ function Lobby({ room }: { room: PublicRoom }) {
   const online = room.players.filter((p) => p.online).length;
   const all = room.settings.game === 'all';
   const steps = all
-    ? ['Todos recebem o mesmo modelo', 'Cada um recria no Docs ou no Sheets', 'A TV mostra o replay e a % de cada um', 'Ranking de quem chegou mais perto']
+    ? ['Todos fazem os mesmos desafios, um de cada vez', 'Cada um recria o modelo no Docs ou no Sheets', 'No fim de cada desafio, a TV mostra o replay e a % de todos', 'Pódio final com os 5 que chegaram mais perto']
     : ['A máquina sorteia dois rivais', 'A dupla recria o modelo no Docs ou no Sheets', 'A turma vota em quem ficou mais parecido', 'Quem vence avança até a linha de chegada'];
   return (
     <div className="lobby">

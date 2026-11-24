@@ -15,11 +15,12 @@ Verificado com `npm run e2e` (Chrome, TV 1366×768, dois alunos em Chromebook 13
 | Votação | `11`, `21`–`23` | Barras subindo ao vivo; aluno vota na esquerda/direita da TV |
 | Resultado e corrida | `12`–`14`, `24` | Vencedor com confete; raias com largada/chegada; vencedor avança com "+1" |
 | Campeão | `17`, `18` | Troféu, raios, confete e top 5 |
-| Contra todos: sala | `30` | Modo, tempo da partida, escolha do desafio, passos do modo |
-| Contra todos: prova | `31`–`35` | Contagem 3-2-1, aluno "Prepare-se", editor com "Contra todos", TV com modelo inteiro e quem já salvou, "✓ entregue" |
+| Contra todos: sala | `30` | Modo, tempo de cada desafio, quantidade e lista dos desafios na ordem |
+| Contra todos: prova | `31`–`35` | Contagem 3-2-1, "Prepare-se", editor com "Desafio 1 de 2" e botão Entregar, TV com quem entregou, aluno "Entregue!" |
 | Contra todos: revelação | `36`, `37-*` | Recolhendo trabalhos; para cada aluno: replay (`-replay`) e nota final com critérios ✓/✕ |
-| Contra todos: ranking | `38`, `39`, `42` | Pódio, lista com barras; aluno vê a própria % e posição |
-| Contra todos: Sheets | `40`, `41-*` | Planilha intermediária, replay e critérios de preenchimento/R$/bordas |
+| Contra todos: resultado | `38`, `39`, `42` | Pódio e lista do desafio; botão "Próximo desafio"; aluno vê a % e a posição |
+| Contra todos: Sheets | `40`, `41-*` | Desafio 2 (planilha), termina sozinho quando todos entregam |
+| Contra todos: pódio final | `43`, `44` | Top 5 pela média, nota de cada desafio; aluno vê média e posição |
 
 Vídeo da revelação: `npm run e2e:todos` grava `qa-evidence/revelacao-contra-todos.webm` (fora do git).
 

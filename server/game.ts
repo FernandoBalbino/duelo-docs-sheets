@@ -1,10 +1,10 @@
 // Regras do duelo, sem rede. O relógio e o sorteio são injetáveis para os testes.
 import { randomBytes } from 'node:crypto';
-import { CHALLENGES, CHALLENGE_BY_ID, challengesOf, type Challenge } from '../shared/challenges.ts';
+import { CHALLENGE_BY_ID, challengesOf, type Challenge } from '../shared/challenges.ts';
 import type { Kind, Phase, PublicRoom, PublicTask, Side, Winner } from '../shared/protocol.ts';
 import {
   ALL_ADD_MS, ALL_INTRO_MS, AVATARS, DEFAULT_SETTINGS, DRAW_MS, EARLY_CLOSE_MS, LIMITS, MAX_CONTENT, MAX_FRAMES, MAX_FRAMES_CHARS,
-  MAX_NAME, MAX_PLAYERS, MODES, VOTE_GRACE_MS, type Settings,
+  MAX_NAME, MAX_PICKS, MAX_PLAYERS, MODES, VOTE_GRACE_MS, type Settings,
 } from '../shared/rules.ts';
 
 export class GameError extends Error {}
@@ -61,7 +61,8 @@ export interface Room {
   task: PublicTask | null; // contra todos
   submissions: Map<string, string[]>; // quadros do progresso de cada aluno (replay na TV)
   scores: Record<string, number> | null;
-  usedAll: Set<string>;
+  picks: string[]; // desafios da partida contra todos (cópia da configuração no começo)
+  board: Record<string, (number | null)[]> | null;
   timer: unknown;
   touched: number;
 }
@@ -117,7 +118,7 @@ export class Game {
       code, teacherToken: randomBytes(16).toString('hex'), phase: 'lobby', settings: { ...DEFAULT_SETTINGS },
       players: new Map(), avatarSeq: Math.floor(this.rnd() * AVATARS.length), round: 0, duel: null, contents: new Map(),
       champions: [], usedByPair: new Map(), usedByPlayer: new Map(), lastPair: '', kindTurn: 0, task: null, submissions: new Map(),
-      scores: null, usedAll: new Set(), timer: null, touched: this.clock.now(),
+      scores: null, picks: [], board: null, timer: null, touched: this.clock.now(),
     };
     this.rooms.set(code, room);
     return room;
@@ -169,9 +170,9 @@ export class Game {
   }
 
   setSettings(room: Room, patch: Partial<Settings>) {
-    if (!['lobby', 'result', 'ranking'].includes(room.phase)) throw new GameError('Mude as configurações entre uma rodada e outra.');
+    if (!['lobby', 'result', 'ranking', 'final'].includes(room.phase)) throw new GameError('Mude as configurações entre uma rodada e outra.');
     const next = { ...room.settings };
-    for (const key of ['duelSeconds', 'voteSeconds', 'target', 'allMinutes'] as const) {
+    for (const key of ['duelSeconds', 'voteSeconds', 'target', 'taskMinutes'] as const) {
       if (patch?.[key] == null) continue;
       const v = Number(patch[key]);
       const [min, max] = LIMITS[key];
@@ -186,9 +187,11 @@ export class Game {
       if (patch.game !== 'duel' && patch.game !== 'all') throw new GameError('Modo de jogo inválido.');
       next.game = patch.game;
     }
-    if (patch?.pick != null) {
-      if (patch.pick !== 'basico' && patch.pick !== 'intermediario' && !CHALLENGE_BY_ID.has(patch.pick)) throw new GameError('Desafio inválido.');
-      next.pick = patch.pick;
+    if (patch?.picks != null) {
+      const p: unknown = patch.picks;
+      if (!Array.isArray(p) || !p.length || p.length > MAX_PICKS || !p.every((id) => CHALLENGE_BY_ID.has(id)))
+        throw new GameError('Lista de desafios inválida.');
+      next.picks = [...p];
     }
     room.settings = next;
     this.updateChampions(room); // subir a meta depois de um campeão deixa a partida continuar
@@ -361,7 +364,7 @@ export class Game {
   restart(room: Room) {
     this.clock.clearTimeout(room.timer);
     for (const p of room.players.values()) Object.assign(p, { points: 0, duels: 0 });
-    Object.assign(room, { phase: 'lobby', duel: null, champions: [], lastPair: '', kindTurn: 0, task: null, scores: null });
+    Object.assign(room, { phase: 'lobby', duel: null, champions: [], lastPair: '', kindTurn: 0, task: null, scores: null, picks: [], board: null });
     room.contents.clear();
     room.submissions.clear();
     this.changed(room);
@@ -407,20 +410,31 @@ export class Game {
       champions: room.champions,
       task: room.task,
       scores: room.scores,
+      board: room.board,
       serverNow: this.clock.now(),
     };
   }
 
-  // ---------- Contra todos: todos fazem o mesmo desafio; a TV calcula a % de cada um no fim.
+  // ---------- Contra todos: a turma faz os desafios escolhidos pelo professor, um de cada vez.
+  // Cada desafio: prova (work) → replay de todos na TV (reveal) → resultado (ranking) → próximo. No fim, pódio (final).
 
   startAll(room: Room) {
-    if (room.phase !== 'lobby' && room.phase !== 'ranking') throw new GameError('Termine a rodada atual antes de começar outra.');
+    if (!['lobby', 'ranking', 'final'].includes(room.phase)) throw new GameError('Termine a rodada atual antes de começar outra.');
     if (![...room.players.values()].some((p) => p.online)) throw new GameError('Espere pelo menos um aluno entrar.');
-    const ch = CHALLENGE_BY_ID.get(room.settings.pick) ?? this.pickForAll(room);
+    room.picks = [...room.settings.picks];
+    room.board = {};
+    this.beginTask(room, 0);
+  }
+
+  private beginTask(room: Room, index: number) {
+    const ch = CHALLENGE_BY_ID.get(room.picks[index])!;
     const now = this.clock.now();
     room.round++;
     const startsAt = now + ALL_INTRO_MS;
-    room.task = { round: room.round, challengeId: ch.id, kind: ch.kind, startsAt, endsAt: startsAt + room.settings.allMinutes * 60_000 };
+    room.task = {
+      round: room.round, index, count: room.picks.length, challengeId: ch.id, kind: ch.kind, startsAt,
+      endsAt: startsAt + room.settings.taskMinutes * 60_000,
+    };
     room.submissions.clear();
     room.contents.clear();
     room.scores = null;
@@ -429,11 +443,13 @@ export class Game {
     this.changed(room);
   }
 
-  private pickForAll(room: Room): Challenge {
-    const kind = this.kindFor(room);
-    const pool = CHALLENGES.filter((c) => c.kind === kind && c.level === room.settings.pick);
-    const fresh = pool.filter((c) => !room.usedAll.has(c.id));
-    return this.pick(fresh.length ? fresh : pool);
+  // Botão "Próximo desafio" na TV; depois do último, o pódio final.
+  nextTask(room: Room) {
+    if (room.phase !== 'ranking' || !room.task) throw new GameError('Espere o resultado deste desafio.');
+    const next = room.task.index + 1;
+    if (next < room.picks.length) return this.beginTask(room, next);
+    room.phase = 'final';
+    this.changed(room);
   }
 
   endWork(room: Room) {
@@ -447,8 +463,6 @@ export class Game {
     this.clock.clearTimeout(room.timer);
     t.endsAt = Math.min(t.endsAt, this.clock.now());
     room.phase = 'reveal';
-    room.usedAll.add(t.challengeId);
-    room.kindTurn++;
     for (const [id, data] of room.contents) {
       if (room.submissions.has(id)) continue;
       room.submissions.set(id, [data]);
@@ -477,6 +491,8 @@ export class Game {
     room.submissions.set(playerId, frames as string[]);
     this.touch(room);
     this.onFrames(room, playerId, frames as string[]);
+    // Todos os conectados entregaram antes do tempo: o desafio acaba e vão os replays.
+    if (room.phase === 'work' && [...room.players.values()].every((p) => !p.online || room.submissions.has(p.id))) this.startReveal(room);
   }
 
   // A TV terminou o replay e manda a % de cada aluno: vira o ranking para todos.
@@ -486,6 +502,11 @@ export class Game {
     for (const [id, v] of Object.entries(scores && typeof scores === 'object' ? scores : {}))
       if (room.players.has(id) && Number.isInteger(v) && v >= 0 && v <= 100) out[id] = v;
     room.scores = out;
+    const t = room.task!;
+    for (const [id, v] of Object.entries(out)) {
+      room.board![id] ??= Array(t.count).fill(null);
+      room.board![id][t.index] = v;
+    }
     room.phase = 'ranking';
     this.changed(room);
   }

@@ -1,7 +1,7 @@
 // Mensagens entre navegador e servidor. Pequenas de propósito: a banda e as horas do Render free são limitadas.
 import type { Settings } from './rules.ts';
 
-export type Phase = 'lobby' | 'draw' | 'duel' | 'vote' | 'result' | 'work' | 'reveal' | 'ranking';
+export type Phase = 'lobby' | 'draw' | 'duel' | 'vote' | 'result' | 'work' | 'reveal' | 'ranking' | 'final';
 export type Kind = 'docs' | 'sheets';
 export type Side = 'a' | 'b';
 export type Winner = Side | 'tie' | 'none';
@@ -29,9 +29,11 @@ export interface PublicDuel {
   winner: Winner | null;
 }
 
-// Contra todos: um desafio para a turma inteira.
+// Contra todos: um dos desafios da partida, para a turma inteira.
 export interface PublicTask {
   round: number;
+  index: number; // posição na lista do professor (0 = primeiro)
+  count: number; // quantos desafios a partida tem
   challengeId: string;
   kind: Kind;
   startsAt: number;
@@ -46,14 +48,15 @@ export interface PublicRoom {
   duel: PublicDuel | null;
   champions: string[]; // ids de quem chegou na linha de chegada
   task: PublicTask | null;
-  scores: Record<string, number> | null; // % de cada aluno (calculada pela TV) no ranking
+  scores: Record<string, number> | null; // % de cada aluno (calculada pela TV) no desafio que acabou
+  board: Record<string, (number | null)[]> | null; // % de cada aluno em cada desafio da partida (pódio final)
   serverNow: number;
 }
 
 export type Ack<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 type Cb<T = object> = (res: Ack<T>) => void;
 
-export type TeacherAction = 'draw' | 'redraw' | 'endDuel' | 'addTime' | 'endVote' | 'restart' | 'kick' | 'startAll' | 'endWork';
+export type TeacherAction = 'draw' | 'redraw' | 'endDuel' | 'addTime' | 'endVote' | 'restart' | 'kick' | 'startAll' | 'endWork' | 'nextTask';
 
 export interface ClientEvents {
   'teacher:create': (p: null, ack: Cb<{ code: string; token: string }>) => void;

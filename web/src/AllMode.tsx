@@ -22,6 +22,7 @@ export function AllWork({ room }: { room: PublicRoom }) {
   const ch = taskChallenge(room);
   const now = useTick(250);
   const saved = useSaved();
+  const frames = useFrames(); // quem já entregou
   const count = Math.ceil((t.startsAt - now) / 1000) - 1; // 3, 2, 1, 0 = valendo
   useEffect(() => {
     if (count >= 0 && count <= 3) play(count ? 'count' : 'go');
@@ -33,13 +34,13 @@ export function AllWork({ room }: { room: PublicRoom }) {
         <div className="arena-title">
           <KindLogo kind={ch.kind} size={40} />
           <div>
-            <small>Contra todos · {KIND_LABEL[ch.kind]}</small>
+            <small>Desafio {t.index + 1} de {t.count} · {KIND_LABEL[ch.kind]}</small>
             <strong>{ch.title}</strong>
           </div>
         </div>
-        <Timer left={t.endsAt - now} total={t.endsAt - t.startsAt} size={96} label="Tempo da partida" />
+        <Timer left={t.endsAt - now} total={t.endsAt - t.startsAt} size={96} label="Tempo do desafio" />
         <div className="arena-actions">
-          <button type="button" className="btn ghost" onClick={() => act('addTime')}><Icon name="more_time" /> +5 min</button>
+          <button type="button" className="btn ghost" onClick={() => act('addTime')}><Icon name="more_time" /> +1 min</button>
           <button type="button" className="btn primary" onClick={() => confirm('Encerrar a prova agora e mostrar os resultados?') && act('endWork')}>
             <Icon name="stop_circle" /> Encerrar e ver resultados
           </button>
@@ -52,13 +53,14 @@ export function AllWork({ room }: { room: PublicRoom }) {
           <ul className="model-tips">{ch.tips.map((tip) => <li key={tip}>{tip}</li>)}</ul>
         </section>
         <section className="people-panel">
-          <h3><Icon name="groups" /> {online} fazendo agora · {saved.size} já salvaram</h3>
+          <h3><Icon name="groups" /> {room.players.filter((p) => frames.has(p.id)).length} de {online} entregaram</h3>
           <div className="people">
             {room.players.map((p) => {
               const at = saved.get(p.id);
-              const status = !p.online ? 'desconectado' : at ? `salvou há ${Math.max(0, Math.floor((Date.now() - at) / 60_000))} min` : 'trabalhando…';
+              const done = frames.has(p.id);
+              const status = done ? '✓ entregou' : !p.online ? 'desconectado' : at ? `salvou há ${Math.max(0, Math.floor((Date.now() - at) / 60_000))} min` : 'trabalhando…';
               return (
-                <div key={p.id} className={`person${p.online ? '' : ' off'}${at ? ' saved' : ''}`}>
+                <div key={p.id} className={`person${p.online ? '' : ' off'}${at ? ' saved' : ''}${done ? ' done' : ''}`}>
                   <Avatar p={p} size={38} />
                   <div><strong>{p.name}</strong><small>{status}</small></div>
                 </div>
@@ -72,9 +74,9 @@ export function AllWork({ room }: { room: PublicRoom }) {
           <div className={`chal-card ${ch.kind}`}>
             <KindLogo kind={ch.kind} size={56} />
             <div>
-              <small>Desafio para a turma toda no {KIND_LABEL[ch.kind]}</small>
+              <small>Desafio {t.index + 1} de {t.count} · {KIND_LABEL[ch.kind]}</small>
               <strong>{ch.title}</strong>
-              <span>Todos fazem o mesmo modelo. No fim, a TV mostra quanto cada um chegou perto!</span>
+              <span>Todos fazem o mesmo modelo. Acabou o tempo ou todos entregaram: replay e % de cada um!</span>
             </div>
           </div>
           <div className="countdown" key={count}>{count ? count : 'VALENDO!'}</div>
@@ -122,8 +124,8 @@ function CriterionRow({ c }: { c: Criterion }) {
 
 const verdict = (pct: number) => (pct >= 95 ? 'Perfeito!' : pct >= 80 ? 'Muito bom!' : pct >= 60 ? 'Bom trabalho!' : pct >= 30 ? 'Quase lá…' : 'Faltou capricho');
 
-function RevealCard({ p, n, total, ch, frames, onDone }: {
-  p: PublicPlayer; n: number; total: number; ch: Challenge; frames: string[]; onDone: () => void;
+function RevealCard({ p, n, total, ch, frames, onDone, label }: {
+  p: PublicPlayer; n: number; total: number; ch: Challenge; frames: string[]; onDone: () => void; label: string;
 }) {
   const shots = useMemo(() => clean(ch, frames), [ch, frames]);
   const scores = useMemo(() => shots.map((f) => scoreWork(ch, f)), [ch, shots]);
@@ -162,7 +164,7 @@ function RevealCard({ p, n, total, ch, frames, onDone }: {
       <header className="rv-head">
         <Avatar p={p} size={62} className="pop" />
         <h2><Typed text={p.name} speed={45} /></h2>
-        <span className="rv-count">{n} de {total}</span>
+        <span className="rv-count">{label} · aluno {n} de {total}</span>
       </header>
       <div className="rv-cols">
         <section className="rv-panel">
@@ -250,7 +252,8 @@ export function Reveal({ room }: { room: PublicRoom }) {
   const p = order[idx];
   return (
     <div className="reveal">
-      <RevealCard key={p.id} p={p} n={idx + 1} total={order.length} ch={ch} frames={frames.get(p.id) ?? []} onDone={() => setIdx((i) => i + 1)} />
+      <RevealCard key={p.id} p={p} n={idx + 1} total={order.length} ch={ch} frames={frames.get(p.id) ?? []} onDone={() => setIdx((i) => i + 1)}
+        label={`Desafio ${t.index + 1} de ${t.count}`} />
       <footer className="result-actions">
         <button type="button" className="btn ghost" onClick={() => setIdx((i) => i + 1)}><Icon name="skip_next" /> Próximo aluno</button>
         <button type="button" className="btn primary" onClick={() => setIdx(order.length)}><Icon name="emoji_events" /> Ver ranking</button>
@@ -259,8 +262,10 @@ export function Reveal({ room }: { room: PublicRoom }) {
   );
 }
 
-// ---------- Ranking final
+// ---------- Resultado de um desafio (entre um e outro)
 export function Ranking({ room }: { room: PublicRoom }) {
+  const t = room.task!;
+  const last = t.index + 1 >= t.count;
   const scores = room.scores ?? {};
   const list = room.players.filter((p) => p.id in scores).sort((a, b) => scores[b.id] - scores[a.id] || a.name.localeCompare(b.name, 'pt-BR'));
   useEffect(() => {
@@ -271,7 +276,7 @@ export function Ranking({ room }: { room: PublicRoom }) {
   return (
     <div className="ranking">
       <section className="rk-podium">
-        <h2><Icon name="emoji_events" size={38} /> Quem chegou mais perto do modelo</h2>
+        <h2><Icon name="emoji_events" size={38} /> Desafio {t.index + 1} de {t.count}: quem chegou mais perto</h2>
         <div className="podium">
           {podium.map((p, i) => p && (
             <div key={p.id} className={`pod pod-${[2, 1, 3][i]}`} style={{ ['--i' as string]: [1, 2, 0][i] }}>
@@ -295,8 +300,65 @@ export function Ranking({ room }: { room: PublicRoom }) {
         ))}
       </ol>
       <footer className="result-actions">
-        <button type="button" className="btn primary big" onClick={() => act('startAll')}><Icon name="groups" /> Nova rodada contra todos</button>
-        <button type="button" className="btn ghost" onClick={() => confirm('Voltar para a sala? Os pontos do duelo também zeram.') && act('restart')}>Voltar para a sala</button>
+        <button type="button" className="btn primary big" onClick={() => act('nextTask')}>
+          {last ? <><Icon name="emoji_events" /> Ver pódio final</> : <><Icon name="skip_next" /> Próximo desafio ({t.index + 2} de {t.count})</>}
+        </button>
+        <button type="button" className="btn ghost" onClick={() => confirm('Encerrar a partida e voltar para a sala?') && act('restart')}>Voltar para a sala</button>
+      </footer>
+    </div>
+  );
+}
+
+// ---------- Pódio final: média da % de todos os desafios da partida (quem faltou num desafio fica com 0 nele)
+export const average = (marks: (number | null)[] | undefined, count: number) =>
+  Math.round((marks ?? []).reduce<number>((s, v) => s + (v ?? 0), 0) / Math.max(1, count));
+
+export function Final({ room }: { room: PublicRoom }) {
+  const board = room.board ?? {};
+  const count = room.task?.count ?? 1;
+  const list = room.players.filter((p) => p.id in board)
+    .map((p) => ({ p, avg: average(board[p.id], count) }))
+    .sort((a, b) => b.avg - a.avg || a.p.name.localeCompare(b.p.name, 'pt-BR'));
+  useEffect(() => {
+    play('fanfare');
+    if (reduced()) return;
+    const burst = () => confetti({ particleCount: 150, spread: 120, origin: { y: 0.5 }, colors: ['#ffd54a', '#4285f4', '#34a853', '#ffffff'], disableForReducedMotion: true });
+    burst();
+    const t = setInterval(burst, 3000);
+    return () => clearInterval(t);
+  }, []);
+  const places = [3, 1, 0, 2, 4]; // 4º, 2º, 1º, 3º, 5º da esquerda para a direita
+  return (
+    <div className="ranking final">
+      <section className="rk-podium">
+        <h2><Icon name="emoji_events" size={38} /> Pódio final · média dos {count} desafios</h2>
+        <div className="podium five">
+          {places.map((k) => list[k] && (
+            <div key={list[k].p.id} className={`pod pod-${k + 1}`} style={{ ['--i' as string]: 4 - k }}>
+              <Avatar p={list[k].p} size={[104, 84, 74, 64, 58][k]} className="pop" />
+              <strong>{list[k].p.name}</strong>
+              <em>{list[k].avg}%</em>
+              <div className="pedestal"><b>{k + 1}º</b></div>
+            </div>
+          ))}
+        </div>
+      </section>
+      <ol className="rk-list final-list">
+        {list.map(({ p, avg }, i) => (
+          <li key={p.id} style={{ ['--i' as string]: i, ['--p' as string]: avg / 100 }}>
+            <b>{i + 1}º</b>
+            <Avatar p={p} size={28} />
+            <span>{p.name}</span>
+            <div className="marks">{Array.from({ length: count }, (_, k) => (
+              <i key={k} title={`Desafio ${k + 1}`} className={board[p.id][k] == null ? 'miss' : ''}>{board[p.id][k] ?? '—'}</i>
+            ))}</div>
+            <em>{avg}%</em>
+          </li>
+        ))}
+      </ol>
+      <footer className="result-actions">
+        <button type="button" className="btn primary big" onClick={() => act('startAll')}><Icon name="restart_alt" /> Jogar de novo</button>
+        <button type="button" className="btn ghost" onClick={() => confirm('Voltar para a sala?') && act('restart')}>Voltar para a sala</button>
       </footer>
     </div>
   );

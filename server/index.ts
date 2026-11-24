@@ -125,6 +125,7 @@ export function createGameServer(origins: string[], clock?: Clock) {
           case 'restart': game.restart(room); break;
           case 'startAll': game.startAll(room); break;
           case 'endWork': game.endWork(room); break;
+          case 'nextTask': game.nextTask(room); break;
           case 'kick': {
             const kicked = game.kick(room, p.playerId);
             for (const s of socketsOf(room, kicked.id)) {

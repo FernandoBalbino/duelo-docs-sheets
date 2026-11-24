@@ -20,7 +20,8 @@ export type Mode = 'alternar' | 'docs' | 'sheets' | 'aleatorio';
 export type GameMode = 'duel' | 'all';
 // Contra todos: todos fazem o mesmo desafio; no fim cada aluno manda até MAX_FRAMES quadros do próprio progresso (replay).
 export const ALL_INTRO_MS = 4000;
-export const ALL_ADD_MS = 5 * 60_000;
+export const ALL_ADD_MS = 60_000;
+export const MAX_PICKS = 10; // desafios numa partida contra todos
 export const CHECKPOINT_MS = 60_000; // salvamento de segurança durante a prova (só o documento atual)
 export const MAX_FRAMES = 40;
 export const MAX_FRAMES_CHARS = 100_000;
@@ -46,17 +47,17 @@ export interface Settings {
   target: number; // vitórias para ser campeão
   mode: Mode;
   game: GameMode;
-  allMinutes: number; // tempo total da partida contra todos
-  pick: string; // 'basico' | 'intermediario' (sorteia) ou o id de um desafio
+  taskMinutes: number; // contra todos: tempo de cada desafio
+  picks: string[]; // contra todos: desafios escolhidos pelo professor, na ordem
 }
 export const DEFAULT_SETTINGS: Settings = {
-  duelSeconds: 180, voteSeconds: 30, target: 3, mode: 'alternar', game: 'duel', allMinutes: 20, pick: 'intermediario',
+  duelSeconds: 180, voteSeconds: 30, target: 3, mode: 'alternar', game: 'duel', taskMinutes: 5, picks: ['d01', 's01', 'd19', 's19', 'd04'],
 };
 export const LIMITS = {
   duelSeconds: [30, 900],
   voteSeconds: [10, 120],
   target: [1, 10],
-  allMinutes: [1, 120],
+  taskMinutes: [1, 60],
 } as const satisfies Record<string, readonly [number, number]>;
 
 export const AVATARS: { emoji: string; color: string }[] = [

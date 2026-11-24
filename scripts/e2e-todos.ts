@@ -118,10 +118,12 @@ try {
   ctl.on('state', (r) => (room = r));
   await emit(ctl, 'teacher:resume', { code, token });
 
-  // Professor escolhe "Contra todos" e o desafio "Relatório de manutenção" (intermediário).
+  // Professor escolhe "Contra todos", 2 desafios (Relatório de manutenção e Estoque da loja) e 5 min por desafio.
   await tv.getByRole('radio', { name: 'Contra todos' }).click();
-  await tv.getByRole('combobox').selectOption('d19');
-  await until(() => room?.settings.game === 'all' && room.settings.pick === 'd19');
+  for (let i = 0; i < 3; i++) await tv.getByRole('button', { name: 'Diminuir Quantidade de desafios' }).click();
+  await tv.getByRole('combobox', { name: 'Desafio 1' }).selectOption('d19');
+  await tv.getByRole('combobox', { name: 'Desafio 2' }).selectOption('s19');
+  await until(() => room?.settings.game === 'all' && room.settings.picks.join() === 'd19,s19');
 
   const ana = await kidJoin(code, 'Ana');
   const beto = await kidJoin(code, 'Beto');
@@ -178,14 +180,18 @@ try {
   await beto.keyboard.type('pc 04 nao liga');
   await wait(1500);
   await shot(ana, '33-aluno-contra-todos-docs');
-  await shot(tv, '34-tv-contra-todos-prova');
 
-  await tv.getByRole('button', { name: 'Encerrar e ver resultados' }).click();
-  await until(() => room?.phase === 'reveal');
-  await botsDeliver();
+  // Ana, Beto e três robôs entregam antes do tempo; a Gabi não: o professor encerra.
+  for (const kid of [ana, beto]) await kid.getByRole('button', { name: 'Entregar' }).click();
   await ana.getByText('✓ Seu trabalho foi entregue').waitFor();
   await beto.getByText('✓ Seu trabalho foi entregue').waitFor();
+  await botsDeliver();
+  await wait(800);
+  if (room!.phase !== 'work') throw new Error('com a Gabi faltando, o desafio não deveria acabar sozinho');
   await shot(ana, '35-aluno-entregue');
+  await shot(tv, '34-tv-contra-todos-prova');
+  await tv.getByRole('button', { name: 'Encerrar e ver resultados' }).click();
+  await until(() => room?.phase === 'reveal');
 
   // A TV recarrega gravando vídeo e passa o replay de todos (a primeira TV fecha para não dobrar).
   await tv.context().close();
@@ -197,8 +203,8 @@ try {
   step(`revelados: ${names.join(', ')}`);
   await until(() => room?.phase === 'ranking');
   await wait(2500);
-  await shot(tv2, '38-tv-ranking');
-  await shot(ana, '39-aluno-resultado-final');
+  await shot(tv2, '38-tv-resultado-desafio-1');
+  await shot(ana, '39-aluno-resultado-desafio-1');
   const sc = room!.scores!;
   const id = (n: string) => room!.players.find((p) => p.name === n)!.id;
   step(`notas: ${room!.players.map((p) => `${p.name} ${sc[p.id]}%`).join(' · ')}`);
@@ -211,11 +217,10 @@ try {
   await video.saveAs(VIDEO);
   step(`vídeo: ${VIDEO}`);
 
-  // ---------- Segunda rodada: Planilhas (intermediário)
-  await emit(ctl, 'teacher:settings', { pick: 's19' });
+  // ---------- Desafio 2: Planilhas. Todos entregam: acaba sozinho, sem o professor encerrar.
   const tv3 = await open(1366, 768, { session: sessionJson });
   await tv3.goto(URL);
-  await tv3.getByRole('button', { name: 'Nova rodada contra todos' }).click();
+  await tv3.getByRole('button', { name: 'Próximo desafio (2 de 2)' }).click();
   await until(() => room?.phase === 'work' && room.task?.challengeId === 's19');
   await wait(Math.max(0, room!.task!.startsAt - room!.serverNow) + 600);
   botsWork();
@@ -246,14 +251,25 @@ try {
   await cell(8, 5).click();
   await wait(1200);
   await shot(ana, '40-aluno-contra-todos-sheets');
-  await tv3.getByRole('button', { name: 'Encerrar e ver resultados' }).click();
-  await until(() => room?.phase === 'reveal');
+  for (const kid of [ana, beto]) await kid.getByRole('button', { name: 'Entregar' }).click();
+  BOTS[3].frames = true;
   await botsDeliver();
+  await until(() => room?.phase === 'reveal');
   await watchReveal(tv3, '41-resultado-sheets', 2);
   await tv3.getByRole('button', { name: 'Ver ranking' }).click();
   await until(() => room?.phase === 'ranking');
   await wait(2500);
-  await shot(tv3, '42-tv-ranking-sheets');
+  await shot(tv3, '42-tv-resultado-desafio-2');
+
+  // ---------- Pódio final (média dos 2 desafios)
+  await tv3.getByRole('button', { name: 'Ver pódio final' }).click();
+  await until(() => room?.phase === 'final');
+  await wait(3500);
+  await shot(tv3, '43-tv-podio-final');
+  await shot(ana, '44-aluno-podio-final');
+  const board = room!.board!;
+  step(`pódio: ${room!.players.map((p) => `${p.name} ${board[p.id]?.join('/')}`).join(' · ')}`);
+  if (Object.keys(board).length !== 6 || board[id('Caio')].join() !== '100,100') throw new Error('placar final errado');
 
   if (errors.length) throw new Error(`Erros no console:\n${errors.join('\n')}`);
   step('tudo certo ✔');
