@@ -17,6 +17,22 @@ export const EARLY_CLOSE_MS = 1500; // todos votaram: espera a última barra sub
 export const IDLE_MS = 25 * 60_000; // sem nada acontecendo: desconecta para o Render free dormir
 
 export type Mode = 'alternar' | 'docs' | 'sheets' | 'aleatorio';
+export type GameMode = 'duel' | 'all';
+// Contra todos: todos fazem o mesmo desafio; no fim cada aluno manda até MAX_FRAMES quadros do próprio progresso (replay).
+export const ALL_INTRO_MS = 4000;
+export const ALL_ADD_MS = 5 * 60_000;
+export const CHECKPOINT_MS = 60_000; // salvamento de segurança durante a prova (só o documento atual)
+export const MAX_FRAMES = 40;
+export const MAX_FRAMES_CHARS = 100_000;
+
+// Menos quadros, mesma história: tira repetidos e corta um sim, um não (primeiro e último ficam) até caber.
+export function thinFrames(frames: string[], max = MAX_FRAMES, chars = MAX_FRAMES_CHARS): string[] {
+  let f = frames.filter((x, i) => i === 0 || x !== frames[i - 1]);
+  const size = () => f.reduce((n, x) => n + x.length, 0);
+  while (f.length > 2 && (f.length > max || size() > chars)) f = f.filter((_, i) => i % 2 === 0 || i === f.length - 1);
+  if (size() > chars) f = f.slice(-1);
+  return f;
+}
 export const MODES: { id: Mode; label: string }[] = [
   { id: 'alternar', label: 'Alternar' },
   { id: 'docs', label: 'Só Docs' },
@@ -29,12 +45,18 @@ export interface Settings {
   voteSeconds: number;
   target: number; // vitórias para ser campeão
   mode: Mode;
+  game: GameMode;
+  allMinutes: number; // tempo total da partida contra todos
+  pick: string; // 'basico' | 'intermediario' (sorteia) ou o id de um desafio
 }
-export const DEFAULT_SETTINGS: Settings = { duelSeconds: 180, voteSeconds: 30, target: 3, mode: 'alternar' };
+export const DEFAULT_SETTINGS: Settings = {
+  duelSeconds: 180, voteSeconds: 30, target: 3, mode: 'alternar', game: 'duel', allMinutes: 20, pick: 'intermediario',
+};
 export const LIMITS = {
   duelSeconds: [30, 900],
   voteSeconds: [10, 120],
   target: [1, 10],
+  allMinutes: [1, 120],
 } as const satisfies Record<string, readonly [number, number]>;
 
 export const AVATARS: { emoji: string; color: string }[] = [

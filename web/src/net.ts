@@ -2,7 +2,7 @@
 // A conexão só abre quando precisa (entrar/criar sala): a página inicial não acorda o Render à toa.
 import { io, type Socket } from 'socket.io-client';
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import type { Ack, ClientEvents, PublicRoom, ServerEvents } from '../../shared/protocol.ts';
+import type { Ack, ClientEvents, PublicRoom, ServerEvents, TeacherAction } from '../../shared/protocol.ts';
 
 export const SERVER_URL: string = import.meta.env.VITE_SERVER_URL || `${location.protocol}//${location.hostname}:3000`;
 
@@ -20,6 +20,10 @@ let kicked = false;
 let idle = false;
 const contents = new Map<string, string>(); // TV: documento atual de cada duelista (rodada atual)
 let contentRound = 0;
+// Contra todos (só a TV recebe): quadros do progresso de cada aluno e a hora do último salvamento.
+let framesMap = new Map<string, string[]>();
+let savedMap = new Map<string, number>();
+let taskRound = 0;
 const offsets: number[] = [];
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((f) => f());
@@ -37,7 +41,21 @@ socket.on('state', (r) => {
     contentRound = r.duel?.round ?? 0;
     contents.clear();
   }
+  if ((r.task?.round ?? 0) !== taskRound) {
+    taskRound = r.task?.round ?? 0;
+    framesMap = new Map();
+    savedMap = new Map();
+  }
   room = r;
+  emit();
+});
+socket.on('frames', ({ round, id, frames }) => {
+  if (round !== taskRound) return;
+  framesMap = new Map(framesMap).set(id, frames);
+  emit();
+});
+socket.on('saved', ({ id }) => {
+  savedMap = new Map(savedMap).set(id, Date.now());
   emit();
 });
 socket.on('votes', ({ round, a, b }) => {
@@ -79,6 +97,8 @@ const subscribe = (f: () => void) => {
 export const useRoom = () => useSyncExternalStore(subscribe, () => room);
 export const useKicked = () => useSyncExternalStore(subscribe, () => kicked);
 export const useIdle = () => useSyncExternalStore(subscribe, () => idle);
+export const useFrames = () => useSyncExternalStore(subscribe, () => framesMap);
+export const useSaved = () => useSyncExternalStore(subscribe, () => savedMap);
 export const useContent = (id: string | undefined) => useSyncExternalStore(subscribe, () => (id ? contents.get(id) : undefined));
 
 let connected = socket.connected;
@@ -95,6 +115,11 @@ export async function send<E extends keyof ClientEvents>(event: E, payload: Para
   } catch {
     return { ok: false, error: 'Sem resposta do servidor. Verifique a internet.' } as AckOf<E>;
   }
+}
+
+export async function act(action: TeacherAction, playerId?: string) {
+  const res = await send('teacher:action', { action, playerId });
+  if (!res.ok) alert(res.error);
 }
 
 // Força um novo desenho algumas vezes por segundo (cronômetros e animações por tempo).

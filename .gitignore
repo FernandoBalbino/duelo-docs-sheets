@@ -4,3 +4,6 @@ test-results/
 qa-evidence/*.tmp
 *.log
 .claude/
+qa-evidence/*.webm
+qa-evidence/.video/
+qa-evidence/*.mp4

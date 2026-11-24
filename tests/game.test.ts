@@ -50,10 +50,10 @@ function playDuel(game: Game, room: Room, advance: (ms: number) => void, side: '
   return d;
 }
 
-test('36 desafios com ids únicos, 18 de cada tipo', () => {
-  assert.equal(CHALLENGES.length, 36);
-  assert.equal(CHALLENGE_BY_ID.size, 36);
-  assert.equal(CHALLENGES.filter((c) => c.kind === 'docs').length, 18);
+test('46 desafios com ids únicos: 36 básicos (18 + 18) e 10 intermediários (5 + 5)', () => {
+  assert.equal(CHALLENGE_BY_ID.size, 46);
+  const count = (kind: string, level: string) => CHALLENGES.filter((c) => c.kind === kind && c.level === level).length;
+  assert.deepEqual([count('docs', 'basico'), count('sheets', 'basico'), count('docs', 'intermediario'), count('sheets', 'intermediario')], [18, 18, 5, 5]);
 });
 
 test('a mesma dupla nunca repete desafio (36 duelos seguidos)', () => {
@@ -161,4 +161,40 @@ test('planilha: números em pt-BR, R$ e células vindas da rede filtradas', () =
   assert.deepEqual(sheet([['A', 'B']], { 'A1:B1': { b: 1 } }), { A1: { v: 'A', b: 1 }, B1: { v: 'B', b: 1 } });
   const evil = JSON.stringify({ A1: { v: 'oi', bg: 'url(x)', fc: '#ff0000', x: 1 }, 'ZZ999': { v: 'fora' }, B2: { fs: 999 } });
   assert.deepEqual(parseCells(evil), { A1: { v: 'oi', fc: '#ff0000' } });
+});
+
+test('contra todos: prova com tempo total, salvamento, quadros, replay e ranking', () => {
+  const { clock, advance } = fakeClock();
+  const sent: string[] = [];
+  const game = new Game({ clock, onFrames: (_r, id) => sent.push(id) });
+  const room = game.createRoom();
+  const [ana, beto, caio] = ['Ana', 'Beto', 'Caio'].map((n) => game.join(room.code, n).player.id);
+  game.setSettings(room, { game: 'all', allMinutes: 50, pick: 'd19' });
+  assert.throws(() => game.setSettings(room, { pick: 'x' }), GameError);
+  game.startAll(room);
+  const t = room.task!;
+  assert.equal(room.phase, 'work');
+  assert.equal(t.challengeId, 'd19');
+  assert.equal(t.endsAt - t.startsAt, 50 * 60_000);
+  assert.equal(game.checkpoint(room, ana, t.round, '<p>meio</p>'), true);
+  assert.equal(game.checkpoint(room, beto, t.round + 1, '<p>outra</p>'), false);
+  game.saveFrames(room, beto, t.round, ['<p>a</p>', '<p>ab</p>']);
+  assert.throws(() => game.saveFrames(room, caio, t.round, Array(50).fill('x')), /grande/);
+  game.addTime(room);
+  advance(55 * 60_000 + 4000);
+  assert.equal(room.phase, 'reveal');
+  assert.deepEqual(room.submissions.get(ana), ['<p>meio</p>']); // só tinha o salvamento: vira um quadro
+  assert.deepEqual(sent, [beto, ana]);
+  game.saveFrames(room, caio, t.round, ['<p>atrasado</p>']); // chegou depois do fim, ainda na revelação
+  game.finishAll(room, { [ana]: 40, [beto]: 87, [caio]: 101, intruso: 50 });
+  assert.equal(room.phase, 'ranking');
+  assert.deepEqual(room.scores, { [ana]: 40, [beto]: 87 });
+  assert.throws(() => game.saveFrames(room, caio, t.round, ['<p>tarde</p>']), /terminou/);
+  game.setSettings(room, { pick: 'intermediario', mode: 'docs' });
+  game.startAll(room);
+  assert.notEqual(room.task!.challengeId, 'd19');
+  assert.equal(CHALLENGE_BY_ID.get(room.task!.challengeId)!.level, 'intermediario');
+  game.endWork(room);
+  game.restart(room);
+  assert.equal(room.task, null);
 });

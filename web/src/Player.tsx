@@ -2,7 +2,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Challenge } from '../../shared/challenges.ts';
 import type { PublicPlayer, PublicRoom, Side } from '../../shared/protocol.ts';
-import { REEL_B_STOP, DRAW_MS, fmtClock } from '../../shared/rules.ts';
+import { CHECKPOINT_MS, DRAW_MS, REEL_B_STOP, fmtClock, thinFrames } from '../../shared/rules.ts';
 import { parseCells, type Cells } from '../../shared/sheet.ts';
 import { DocsEditor } from './google/Docs.tsx';
 import { SheetsEditor } from './google/Sheets.tsx';
@@ -32,6 +32,7 @@ export default function Player({ room, me }: { room: PublicRoom; me: string }) {
   const duelist = !!d && (d.a === me || d.b === me);
   if (!p) return null;
   if ((room.phase === 'duel' || room.phase === 'vote') && duelist) return <Duelist room={room} me={p} />;
+  if ((room.phase === 'work' || room.phase === 'reveal') && room.task) return <Duelist room={room} me={p} />;
   return (
     <div className="kid">
       <header className="kid-bar">
@@ -46,6 +47,7 @@ export default function Player({ room, me }: { room: PublicRoom; me: string }) {
         {room.phase === 'duel' && <Watch room={room} />}
         {room.phase === 'vote' && <Vote room={room} />}
         {room.phase === 'result' && <Outcome room={room} me={p} />}
+        {room.phase === 'ranking' && <AllResult room={room} me={p} />}
       </main>
     </div>
   );
@@ -56,7 +58,9 @@ function Waiting({ room, me }: { room: PublicRoom; me: PublicPlayer }) {
     <section className="kid-card center">
       <Avatar p={me} size={110} className="float" />
       <h1>Você está na sala!</h1>
-      <p>Olhe a TV: quando o professor sortear, a máquina escolhe dois rivais. Pode ser você!</p>
+      <p>{room.settings.game === 'all'
+        ? 'Olhe a TV: quando o professor começar, todos recebem o mesmo desafio. Capriche na formatação!'
+        : 'Olhe a TV: quando o professor sortear, a máquina escolhe dois rivais. Pode ser você!'}</p>
       <div className="kid-others">
         {room.players.filter((x) => x.id !== me.id).slice(0, 24).map((x) => <Avatar key={x.id} p={x} size={30} className={x.online ? '' : 'dim'} />)}
       </div>
@@ -181,57 +185,99 @@ function Outcome({ room, me }: { room: PublicRoom; me: PublicPlayer }) {
   );
 }
 
-// Duelista: editor do Docs ou do Sheets em tela cheia. Envia o trabalho para a TV a cada ~1 s, só se mudou.
+// Editor do Docs ou do Sheets em tela cheia: o duelista (manda o trabalho para a TV a cada ~1 s, só se mudou)
+// ou todos no contra todos (salva no servidor uma vez por minuto e manda os quadros do replay uma vez só, no fim).
 function Duelist({ room, me }: { room: PublicRoom; me: PublicPlayer }) {
-  const d = room.duel!;
+  const all = room.phase === 'work' || room.phase === 'reveal';
+  const job = all ? room.task! : room.duel!;
   const ch = challengeOf(room)!;
-  const key = `duelo-docs-sheets:doc:${room.code}:${d.round}`;
+  const key = `duelo-docs-sheets:doc:${room.code}:${job.round}`;
   const initial = useMemo(() => store.get(key) ?? '', [key]);
   const latest = useRef(initial);
   const dirty = useRef(!!initial);
   const now = useTick(500);
-  const locked = room.phase !== 'duel' || now >= d.endsAt;
-  const rival = playerOf(room, d.a === me.id ? d.b : d.a);
+  const over = (all ? room.phase !== 'work' : room.phase !== 'duel') || now >= job.endsAt;
+  const locked = over || now < job.startsAt;
+  const rival = all ? undefined : playerOf(room, room.duel!.a === me.id ? room.duel!.b : room.duel!.a);
   const [zoomed, setZoomed] = useState(false);
+  // Contra todos: quadros do progresso guardados no Chromebook (sobrevivem a recarregar a página).
+  const fkey = `${key}:quadros`;
+  const frames = useRef<string[]>((() => {
+    try {
+      return JSON.parse(store.get(fkey) ?? '[]');
+    } catch {
+      return [];
+    }
+  })());
+  const frameAt = useRef(0);
+  const [sent, setSent] = useState<'' | 'sending' | 'ok' | 'error'>('');
 
   const flush = useCallback(() => {
     if (!dirty.current || !socket.connected) return;
     dirty.current = false;
-    socket.emit('player:content', { round: d.round, data: latest.current });
-  }, [d.round]);
+    socket.emit('player:content', { round: job.round, data: latest.current });
+  }, [job.round]);
+  const sendFrames = useCallback(async () => {
+    if (!all || !socket.connected || sent === 'ok' || sent === 'sending' || (!latest.current && !frames.current.length)) return;
+    setSent('sending');
+    const res = await send('player:frames', { round: job.round, frames: thinFrames([...frames.current, latest.current]) });
+    setSent(res.ok ? 'ok' : 'error');
+  }, [all, job.round, sent]);
   useEffect(() => {
-    const t = setInterval(flush, 1000);
-    const again = () => ((dirty.current = true), flush());
+    const t = setInterval(flush, all ? CHECKPOINT_MS : 1000);
+    const again = () => {
+      dirty.current = true;
+      flush();
+      if (over) void sendFrames();
+    };
     socket.on('connect', again);
     return () => {
       clearInterval(t);
       socket.off('connect', again);
     };
-  }, [flush]);
+  }, [flush, all, over, sendFrames]);
   useEffect(() => {
-    if (locked) flush();
-  }, [locked, flush]);
+    if (!over) return;
+    if (!all) flush();
+    void sendFrames();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [over]);
+  useEffect(() => {
+    if (sent !== 'error') return;
+    const t = setTimeout(() => void sendFrames(), 3000);
+    return () => clearTimeout(t);
+  }, [sent, sendFrames]);
 
   const save = useCallback((data: string) => {
     if (data === latest.current) return;
     latest.current = data;
     dirty.current = true;
     store.set(key, data);
-  }, [key]);
+    if (!all) return;
+    const t = Date.now();
+    if (frames.current.length && t - frameAt.current < 3000) frames.current[frames.current.length - 1] = data;
+    else {
+      frames.current = thinFrames([...frames.current, data]);
+      frameAt.current = t;
+      store.set(fkey, JSON.stringify(frames.current));
+    }
+  }, [key, fkey, all]);
   const saveCells = useCallback((cells: Cells) => save(JSON.stringify(cells)), [save]);
 
-  const left = d.endsAt - now;
+  const left = job.endsAt - now;
   const side = (
     <SidePanel
-      title="Desafio do duelo"
+      title={all ? 'Desafio da turma' : 'Desafio do duelo'}
       heading={ch.title}
       tips={ch.tips}
       onExpand={() => setZoomed(true)}
       timer={
         <div className={`duel-clock${left <= 30_000 ? ' urgent' : ''}`}>
           <Icon name="timer" size={22} />
-          <div><small>Tempo restante</small><b>{fmtClock(left)}</b></div>
-          <span className="rival" title={`Seu rival: ${rival?.name}`}><Avatar p={rival} size={26} />{rival?.name}</span>
+          <div><small>Tempo restante</small><b>{fmtClock(Math.min(left, job.endsAt - job.startsAt))}</b></div>
+          {all
+            ? <span className="rival" title="Todos fazem o mesmo desafio"><Icon name="groups" size={24} />Contra todos</span>
+            : <span className="rival" title={`Seu rival: ${rival?.name}`}><Avatar p={rival} size={26} />{rival?.name}</span>}
         </div>
       }
     >
@@ -240,27 +286,47 @@ function Duelist({ room, me }: { room: PublicRoom; me: PublicPlayer }) {
   );
   const a = avatarOf(me);
   const avatar = { ...a, name: me.name };
+  const d = room.duel;
   return (
     <>
       {ch.kind === 'docs'
         ? <DocsEditor initial={initial} onChange={save} locked={locked} side={side} avatar={avatar} />
         : <SheetsEditor initial={parseCells(initial || '{}')} onChange={saveCells} locked={locked} side={side} avatar={avatar} />}
-      {locked && (
+      {over && (
         <div className="timeup">
           <div className="timeup-card">
             <span aria-hidden="true">⏰</span>
             <h2>Tempo esgotado!</h2>
-            <p>Seu trabalho foi enviado. A turma está votando agora — olhe a TV!</p>
-            {room.phase === 'vote' && (
+            {all ? (
+              <>
+                <p>Olhe a TV: vai passar o replay de cada um com a % do modelo.</p>
+                <p className={`sent-line ${sent}`}>
+                  {sent === 'ok' ? '✓ Seu trabalho foi entregue' : sent === 'error' ? 'Não deu para enviar. Tentando de novo…' : 'Enviando seu trabalho…'}
+                </p>
+              </>
+            ) : (
+              <p>Seu trabalho foi enviado. A turma está votando agora — olhe a TV!</p>
+            )}
+            {!all && d && room.phase === 'vote' && (
               <div className="timeup-votes">
-                {(['a', 'b'] as const).map((s) => (
-                  <Fragment key={s}>
-                    <span>{playerOf(room, d[s])?.name}</span>
-                    <VoteBar votes={d.votes[s]} total={d.votes.a + d.votes.b} side={s} />
+                {(['a', 'b'] as const).map((side) => (
+                  <Fragment key={side}>
+                    <span>{playerOf(room, d[side])?.name}</span>
+                    <VoteBar votes={d.votes[side]} total={d.votes.a + d.votes.b} side={side} />
                   </Fragment>
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {now < job.startsAt && (
+        <div className="timeup">
+          <div className="timeup-card">
+            <KindLogo kind={ch.kind} size={56} />
+            <h2>Prepare-se!</h2>
+            <p>Desafio para a turma toda: <b>{ch.title}</b></p>
+            <div className="intro-count" key={Math.ceil((job.startsAt - now) / 1000)}>{Math.ceil((job.startsAt - now) / 1000)}</div>
           </div>
         </div>
       )}
@@ -272,7 +338,26 @@ function Duelist({ room, me }: { room: PublicRoom; me: PublicPlayer }) {
           </div>
         </div>
       )}
-      {!locked && now - d.startsAt < 2500 && <div className="go-toast">Valendo! Recrie o modelo do painel ao lado <KindLogo kind={ch.kind} size={22} /></div>}
+      {!locked && now - job.startsAt < 2500 && <div className="go-toast">Valendo! Recrie o modelo do painel ao lado <KindLogo kind={ch.kind} size={22} /></div>}
     </>
+  );
+}
+
+// Contra todos: a % do aluno e a posição, depois que a TV terminou o replay.
+function AllResult({ room, me }: { room: PublicRoom; me: PublicPlayer }) {
+  const scores = room.scores ?? {};
+  const list = room.players.filter((p) => p.id in scores).sort((x, y) => scores[y.id] - scores[x.id] || x.name.localeCompare(y.name, 'pt-BR'));
+  const mine = scores[me.id];
+  const pos = list.findIndex((p) => p.id === me.id) + 1;
+  return (
+    <section className={`kid-card center${pos === 1 ? ' won' : ''}`}>
+      <p className="kicker"><Icon name="emoji_events" size={20} /> Resultado do contra todos</p>
+      <div className="big-pct" style={{ ['--p' as string]: (mine ?? 0) / 100 }}>{mine ?? 0}%</div>
+      <h1>{mine == null ? 'Você não entregou desta vez' : `Você chegou a ${mine}% do modelo`}</h1>
+      {pos > 0 && <p>{pos}º lugar de {list.length}</p>}
+      <ol className="kid-top">
+        {list.slice(0, 3).map((p, i) => <li key={p.id}><b>{i + 1}º</b><Avatar p={p} size={30} />{p.name}<em>{scores[p.id]}%</em></li>)}
+      </ol>
+    </section>
   );
 }

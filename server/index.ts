@@ -17,7 +17,7 @@ export function createGameServer(origins: string[], clock?: Clock) {
   const io = new Server<ClientEvents, ServerEvents, Record<string, never>, Data>(http, {
     cors: { origin: origins, methods: ['GET', 'POST'] },
     allowRequest: (req, cb) => cb(null, !req.headers.origin || origins.includes(req.headers.origin)),
-    maxHttpBufferSize: 128 * 1024, // documento do duelista (até MAX_CONTENT caracteres)
+    maxHttpBufferSize: 400 * 1024, // quadros do contra todos (até MAX_FRAMES_CHARS caracteres, uma vez por aluno)
     perMessageDeflate: false,
     serveClient: false,
   });
@@ -35,6 +35,7 @@ export function createGameServer(origins: string[], clock?: Clock) {
         if (game.rooms.has(room.code)) io.to(room.code).emit('state', game.view(room));
       });
     },
+    onFrames: (room, id, frames) => io.to(tv(room.code)).emit('frames', { round: room.task!.round, id, frames }),
   });
 
   // Sala parada há muito tempo: desconecta todo mundo para o Render free poder dormir.
@@ -71,7 +72,10 @@ export function createGameServer(origins: string[], clock?: Clock) {
     if (auth.kind !== 'teacher') return;
     socket.join(tv(room.code));
     // A TV recarregou no meio do duelo: devolve o que os duelistas já fizeram.
-    if (room.duel) for (const [id, data] of room.contents) socket.emit('content', { round: room.duel.round, id, data });
+    if (room.phase === 'work' || room.phase === 'reveal') {
+      for (const [id, frames] of room.submissions) socket.emit('frames', { round: room.task!.round, id, frames });
+      for (const id of room.contents.keys()) socket.emit('saved', { id });
+    } else if (room.duel) for (const [id, data] of room.contents) socket.emit('content', { round: room.duel.round, id, data });
   };
   const socketsOf = (room: Room, playerId: string) =>
     [...io.sockets.sockets.values()].filter((s) => {
@@ -119,6 +123,8 @@ export function createGameServer(origins: string[], clock?: Clock) {
           case 'addTime': game.addTime(room); break;
           case 'endVote': game.endVote(room); break;
           case 'restart': game.restart(room); break;
+          case 'startAll': game.startAll(room); break;
+          case 'endWork': game.endWork(room); break;
           case 'kick': {
             const kicked = game.kick(room, p.playerId);
             for (const s of socketsOf(room, kicked.id)) {
@@ -153,7 +159,9 @@ export function createGameServer(origins: string[], clock?: Clock) {
       const auth = socket.data.auth;
       if (auth?.kind !== 'player') return;
       const room = game.rooms.get(auth.code);
-      if (room && game.content(room, auth.playerId, p?.round, p?.data))
+      if (room?.phase === 'work') {
+        if (game.checkpoint(room, auth.playerId, p?.round, p?.data)) io.to(tv(room.code)).emit('saved', { id: auth.playerId });
+      } else if (room && game.content(room, auth.playerId, p?.round, p?.data))
         io.to(tv(room.code)).emit('content', { round: room.duel!.round, id: auth.playerId, data: p.data });
     });
 
@@ -166,6 +174,16 @@ export function createGameServer(origins: string[], clock?: Clock) {
         io.to(room.code).emit('votes', { round: room.duel!.round, ...t });
         return {};
       }));
+
+    socket.on('player:frames', (p, ack) =>
+      handle(ack, () => {
+        const { auth, room } = authed();
+        if (auth.kind !== 'player') throw new GameError('Só alunos enviam trabalho.');
+        game.saveFrames(room, auth.playerId, p?.round, p?.frames);
+        return {};
+      }));
+
+    socket.on('teacher:scores', (p, ack) => handle(ack, () => (game.finishAll(teacherRoom(), p?.scores), {})));
 
     socket.on('disconnect', () => {
       const auth = socket.data.auth;

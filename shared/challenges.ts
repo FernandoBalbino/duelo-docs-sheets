@@ -1,10 +1,13 @@
-// Os 36 desafios (18 Docs + 18 Sheets). Ficam no código das telas: pela rede só passa o id.
+// Os 46 desafios: 36 básicos (18 Docs + 18 Sheets, usados no duelo) e 10 intermediários (5 + 5, para o contra todos).
+// Ficam no código das telas: pela rede só passa o id.
 // Estilos do Docs viram tags: Texto normal = p, Título = h1, Subtítulo = h6, Título 1 = h2, Título 2 = h3, Título 3 = h4.
 import type { Kind } from './protocol.ts';
 import { sheet, type Cells } from './sheet.ts';
 
+export type Level = 'basico' | 'intermediario';
 interface Base {
   id: string;
+  level: Level;
   title: string;
   tips: string[];
 }
@@ -26,7 +29,7 @@ const size = (pt: number, t: string, extra = '') => `<span style="font-size:${pt
 const ul = (...items: string[]) => `<ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`;
 const ol = (...items: string[]) => `<ol>${items.map((i) => `<li>${i}</li>`).join('')}</ol>`;
 
-const DOCS: Omit<DocsChallenge, 'kind'>[] = [
+const DOCS: Omit<DocsChallenge, 'kind' | 'level'>[] = [
   {
     id: 'd01', title: 'Convite da Feira de Ciências',
     tips: ['Título centralizado (estilo Título)', '"Data:" e "Local:" em negrito', '"família" em vermelho'],
@@ -121,7 +124,7 @@ const DOCS: Omit<DocsChallenge, 'kind'>[] = [
   },
 ];
 
-const SHEETS: Omit<SheetsChallenge, 'kind'>[] = [
+const SHEETS: Omit<SheetsChallenge, 'kind' | 'level'>[] = [
   {
     id: 's01', title: 'Lista de compras', tips: ['Cabeçalho em negrito, fundo azul e letra branca'],
     cells: sheet([['Produto', 'Qtd'], ['Arroz', '2'], ['Feijão', '1'], ['Leite', '6'], ['Pão', '10']],
@@ -214,9 +217,96 @@ const SHEETS: Omit<SheetsChallenge, 'kind'>[] = [
   },
 ];
 
+// Intermediários: mais texto, mais estilos e tabelas maiores (pensados para partidas longas no contra todos).
+const H = (pt: number, color: string, t: string) => `<span style="font-size:${pt}pt;color:${color}">${t}</span>`;
+const DOCS_MID: Omit<DocsChallenge, 'kind' | 'level'>[] = [
+  {
+    id: 'd19', title: 'Relatório de manutenção',
+    tips: ['Título e Subtítulo centralizados', 'Seções no estilo Título 1', 'Lista com rótulos em negrito', '"trocada" em negrito e vermelho', 'Assinatura em itálico à direita'],
+    html: `<h1 ${C}>Relatório de Manutenção</h1><h6 ${C}>Laboratório de Informática - Sala 3</h6><h2>Problemas encontrados</h2>`
+      + ul('<b>PC 04:</b> não liga', '<b>PC 09:</b> teclado com teclas soltas', '<b>Impressora:</b> papel atolado')
+      + `<h2>Solução</h2><p>A fonte do PC 04 foi <b>${red('trocada')}</b> e o teclado foi <i>substituído</i>.</p><p ${R}><i>Técnico responsável: Lucas</i></p>`,
+  },
+  {
+    id: 'd20', title: 'Currículo simples',
+    tips: ['Nome no estilo Título', 'Contato no estilo Subtítulo', 'Seções no estilo Título 1', 'Listas com marcadores', 'Palavras-chave em negrito'],
+    html: `<h1>Mariana Souza</h1><h6>mariana@email.com | (11) 99999-0000</h6><h2>Objetivo</h2><p>Trabalhar como <b>técnica de suporte</b> em informática.</p>`
+      + `<h2>Formação</h2>${ul('Ensino Médio Técnico em Informática', 'Curso de Redes de Computadores')}`
+      + `<h2>Habilidades</h2>${ul('<b>Hardware:</b> montagem e manutenção', '<b>Software:</b> Windows e Linux')}`,
+  },
+  {
+    id: 'd21', title: 'Ata da reunião',
+    tips: ['Título e Subtítulo centralizados', 'Seções no estilo Título 2', 'Lista numerada e lista com marcadores', 'Marca-texto amarelo e "dois" em negrito', 'Última frase sublinhada'],
+    html: `<h1 ${C}>Ata da Reunião</h1><h6 ${C}>Grêmio Estudantil - 10 de abril</h6><h3>Participantes</h3>`
+      + ol('Ana (presidente)', 'Bruno (tesoureiro)', 'Carla (secretária)')
+      + `<h3>Decisões</h3>${ul(`Fazer uma ${mark('feira de tecnologia')} em maio`, 'Comprar <b>dois</b> notebooks para o grêmio')}`
+      + `<p><u>Próxima reunião: 24 de abril.</u></p>`,
+  },
+  {
+    id: 'd22', title: 'Folheto da Semana da Tecnologia',
+    tips: ['Título azul, negrito, tamanho 30, centralizado', 'Data em itálico e centralizada', 'Dias da semana em negrito na lista', '"Inscrições abertas!" tamanho 18 com marca-texto amarelo', 'Assinatura cinza à direita'],
+    html: `<p ${C}><b>${H(30, '#0000ff', 'SEMANA DA TECNOLOGIA')}</b></p><p ${C}><i>De 12 a 16 de maio, no pátio da escola</i></p>`
+      + ul('<b>Segunda:</b> oficina de robótica', '<b>Quarta:</b> campeonato de jogos', '<b>Sexta:</b> palestra sobre segurança digital')
+      + `<p ${C}><span style="font-size:18pt;background-color:#ffff00">Inscrições abertas!</span></p>`
+      + `<p ${R}><span style="color:#666666">Organização: Grêmio</span></p>`,
+  },
+  {
+    id: 'd23', title: 'Tutorial: senha forte',
+    tips: ['Estilo Título 1', '"invasores" e "12 caracteres" em negrito', 'Lista numerada com 4 passos', 'Aviso em vermelho, negrito e centralizado', 'Dica final em itálico'],
+    html: `<h2>Como criar uma senha forte</h2><p>Uma senha forte protege suas contas contra <b>invasores</b>.</p>`
+      + ol('Use <b>12 caracteres</b> ou mais', 'Misture letras, números e símbolos', 'Não use datas de aniversário', 'Use uma senha diferente em cada site')
+      + `<p ${C}><b>${red('Nunca compartilhe sua senha!')}</b></p><p><i>Dica: um gerenciador de senhas ajuda a lembrar de todas.</i></p>`,
+  },
+];
+
+const SHEETS_MID: Omit<SheetsChallenge, 'kind' | 'level'>[] = [
+  {
+    id: 's19', title: 'Estoque da loja',
+    tips: ['Título negrito, tamanho 14', 'Cabeçalho azul escuro com letra branca', 'Quantidades centralizadas', 'Preço e Total em R$', 'Total geral em negrito com fundo verde claro', 'Todas as bordas'],
+    cells: sheet([['Estoque da Loja'], [], ['Produto', 'Quantidade', 'Preço', 'Total'], ['Mouse', '10', '25', '250'], ['Teclado', '5', '60', '300'],
+      ['Headset', '4', '90', '360'], ['Webcam', '3', '120', '360'], ['Total geral', null, null, '1270']],
+    { A1: { b: 1, fs: 14 }, 'A3:D8': { bd: 1 }, 'A3:D3': { b: 1, bg: '#1155cc', fc: '#ffffff' }, 'B4:B7': { al: 'c' }, 'C4:D7,D8': { fmt: 'brl' },
+      'A8:D8': { b: 1, bg: '#d9ead3' } }),
+  },
+  {
+    id: 's20', title: 'Boletim escolar',
+    tips: ['Título negrito, tamanho 14', 'Cabeçalho amarelo e negrito', 'Notas centralizadas', 'Coluna Média em negrito', 'Médias abaixo de 6 em vermelho', 'Todas as bordas'],
+    cells: sheet([['Boletim Escolar'], [], ['Matéria', 'Bim 1', 'Bim 2', 'Média'], ['Redes', '8', '9', '8,5'], ['Hardware', '6', '5', '5,5'],
+      ['Sistemas', '9', '10', '9,5'], ['Suporte', '4', '7', '5,5']],
+    { A1: { b: 1, fs: 14 }, 'A3:D7': { bd: 1 }, 'A3:D3': { b: 1, bg: '#ffd966' }, 'B3:D7': { al: 'c' }, 'D4:D7': { b: 1 }, 'D5,D7': { fc: '#ff0000' } }),
+  },
+  {
+    id: 's21', title: 'Orçamento da festa',
+    tips: ['Cabeçalho laranja em negrito', 'Linhas 3 e 5 com fundo cinza claro', 'Quantidades centralizadas', 'Valores em R$', 'Total em negrito', 'Todas as bordas'],
+    cells: sheet([['Item', 'Qtd', 'Valor unitário', 'Total'], ['Refrigerante', '10', '8', '80'], ['Salgados', '100', '0,5', '50'],
+      ['Bolo', '1', '120', '120'], ['Copos', '50', '0,2', '10'], ['Total', null, null, '260']],
+    { 'A1:D6': { bd: 1 }, 'A1:D1': { b: 1, bg: '#ff9900' }, 'A3:D3,A5:D5': { bg: '#efefef' }, 'B2:B5': { al: 'c' }, 'C2:D5,D6': { fmt: 'brl' },
+      'A6:D6': { b: 1 } }),
+  },
+  {
+    id: 's22', title: 'Escala de limpeza',
+    tips: ['Título verde escuro, negrito, tamanho 12', 'Cabeçalho verde com letra branca', 'Dias em negrito e tarefas em itálico', 'Quarta-feira com fundo amarelo', 'Todas as bordas'],
+    cells: sheet([['Escala de Limpeza do Laboratório'], [], ['Dia', 'Responsável', 'Tarefa'], ['Segunda', 'Ana', 'Limpar teclados'],
+      ['Terça', 'Bruno', 'Organizar cabos'], ['Quarta', 'Carla', 'Tirar o pó'], ['Quinta', 'Davi', 'Limpar telas'], ['Sexta', 'Elisa', 'Revisar mouses']],
+    { A1: { b: 1, fs: 12, fc: '#38761d' }, 'A3:C8': { bd: 1 }, 'A3:C3': { b: 1, bg: '#6aa84f', fc: '#ffffff' }, 'A4:A8': { b: 1 }, 'C4:C8': { i: 1 },
+      'A6:C6': { bg: '#ffff00' } }),
+  },
+  {
+    id: 's23', title: 'Placar da gincana',
+    tips: ['Cabeçalho roxo com letra branca', 'Pontos centralizados', 'Coluna Total em negrito', 'Equipe campeã com fundo dourado', 'Todas as bordas'],
+    cells: sheet([['Equipe', 'Prova 1', 'Prova 2', 'Prova 3', 'Total'], ['Vermelha', '9', '9', '10', '28'], ['Azul', '10', '8', '9', '27'],
+      ['Verde', '8', '6', '9', '23'], ['Amarela', '6', '7', '8', '21']],
+    { 'A1:E5': { bd: 1 }, 'A1:E1': { b: 1, bg: '#674ea7', fc: '#ffffff' }, 'B1:E5': { al: 'c' }, 'E2:E5': { b: 1 }, 'A2:E2': { bg: '#f1c232' } }),
+  },
+];
+
+const tag = <T,>(list: T[], level: Level) => list.map((c) => ({ ...c, level }));
 export const CHALLENGES: Challenge[] = [
-  ...DOCS.map((c) => ({ ...c, kind: 'docs' as const })),
-  ...SHEETS.map((c) => ({ ...c, kind: 'sheets' as const })),
+  ...tag(DOCS, 'basico').map((c) => ({ ...c, kind: 'docs' as const })),
+  ...tag(SHEETS, 'basico').map((c) => ({ ...c, kind: 'sheets' as const })),
+  ...tag(DOCS_MID, 'intermediario').map((c) => ({ ...c, kind: 'docs' as const })),
+  ...tag(SHEETS_MID, 'intermediario').map((c) => ({ ...c, kind: 'sheets' as const })),
 ];
 export const CHALLENGE_BY_ID = new Map(CHALLENGES.map((c) => [c.id, c]));
-export const challengesOf = (kind: Kind) => CHALLENGES.filter((c) => c.kind === kind);
+// Duelo: só os básicos (desafios rápidos de poucos minutos).
+export const challengesOf = (kind: Kind) => CHALLENGES.filter((c) => c.kind === kind && c.level === 'basico');

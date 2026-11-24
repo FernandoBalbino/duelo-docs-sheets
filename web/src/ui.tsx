@@ -10,7 +10,11 @@ import { DocsLogo, SheetsLogo } from './google/ui.tsx';
 
 export const avatarOf = (p: PublicPlayer | undefined) => AVATARS[(p?.avatar ?? 0) % AVATARS.length];
 export const playerOf = (room: PublicRoom, id: string | undefined) => room.players.find((p) => p.id === id);
-export const challengeOf = (room: PublicRoom): Challenge | undefined => (room.duel ? CHALLENGE_BY_ID.get(room.duel.challengeId) : undefined);
+// Desafio da fase atual: o da turma no contra todos, o do duelo no resto.
+export const challengeOf = (room: PublicRoom): Challenge | undefined => {
+  const job = ['work', 'reveal', 'ranking'].includes(room.phase) ? room.task : room.duel;
+  return job ? CHALLENGE_BY_ID.get(job.challengeId) : undefined;
+};
 export const KIND_LABEL: Record<Kind, string> = { docs: 'Google Documentos', sheets: 'Google Planilhas' };
 // Número do duelo para mostrar (sortear de novo não conta): duelos já feitos + o atual.
 export const duelNumber = (room: PublicRoom) =>
@@ -28,17 +32,29 @@ export function Avatar({ p, size = 44, className = '' }: { p: PublicPlayer | und
 export const KindLogo = ({ kind, size = 32 }: { kind: Kind; size?: number }) => (kind === 'docs' ? <DocsLogo size={size} /> : <SheetsLogo size={size} />);
 
 // Escala o conteúdo (largura fixa) para caber na largura do quadro, com CSS zoom (barato no Chromebook).
-export function Fit({ width, children, className = '' }: { width: number; children: ReactNode; className?: string }) {
+// contain: cabe inteiro também na altura (documento longo no replay); usa transform, que não muda a altura medida.
+export function Fit({ width, children, className = '', contain = false }: { width: number; children: ReactNode; className?: string; contain?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(0);
   useLayoutEffect(() => {
     const el = ref.current!;
-    const update = () => setZoom(el.clientWidth / width);
+    const update = () => {
+      const h = contain ? inner.current?.offsetHeight ?? 0 : 0;
+      setZoom(h ? Math.min(el.clientWidth / width, el.clientHeight / h) : el.clientWidth / width);
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
+    if (contain && inner.current) ro.observe(inner.current);
     return () => ro.disconnect();
-  }, [width]);
+  }, [width, contain]);
+  if (contain)
+    return (
+      <div ref={ref} className={`fit contain ${className}`}>
+        <div ref={inner} style={{ width, transform: `scale(${zoom})`, visibility: zoom ? 'visible' : 'hidden' }}>{children}</div>
+      </div>
+    );
   return (
     <div ref={ref} className={`fit ${className}`}>
       {zoom > 0 && <div style={{ zoom, width }}>{children}</div>}
@@ -55,27 +71,27 @@ const sheetSize = (a: Cells, b?: Cells) => {
 
 // Documento para ler de longe: largura de leitura menor que a página (mesma para modelo e trabalhos, então a quebra é justa).
 export const DOC_W = 440;
-function DocCard({ html, width }: { html: string; width: number }) {
+function DocCard({ html, width, contain }: { html: string; width: number; contain?: boolean }) {
   return (
-    <Fit width={width} className="preview-doc">
+    <Fit width={width} className="preview-doc" contain={contain}>
       <div className="gd-content doc-card" dangerouslySetInnerHTML={{ __html: html }} />
     </Fit>
   );
 }
 
-export function ModelPreview({ challenge, docWidth = DOC_W }: { challenge: Challenge; docWidth?: number }) {
-  if (challenge.kind === 'docs') return <DocCard html={challenge.html} width={docWidth} />;
+export function ModelPreview({ challenge, docWidth = DOC_W, contain }: { challenge: Challenge; docWidth?: number; contain?: boolean }) {
+  if (challenge.kind === 'docs') return <DocCard html={challenge.html} width={docWidth} contain={contain} />;
   const { rows, cols } = sheetSize(challenge.cells);
-  return <Fit width={46 + cols * 100} className="preview-sheet"><SheetGrid cells={challenge.cells} rows={rows} cols={cols} /></Fit>;
+  return <Fit width={46 + cols * 100} className="preview-sheet" contain={contain}><SheetGrid cells={challenge.cells} rows={rows} cols={cols} /></Fit>;
 }
 
 // Trabalho de um duelista (vindo da rede): o HTML passa pelo filtro antes de aparecer.
-export function WorkPreview({ challenge, data, docWidth = DOC_W }: { challenge: Challenge; data: string | undefined; docWidth?: number }) {
+export function WorkPreview({ challenge, data, docWidth = DOC_W, contain }: { challenge: Challenge; data: string | undefined; docWidth?: number; contain?: boolean }) {
   const html = useMemo(() => (challenge.kind === 'docs' ? sanitizeDoc(data ?? '') : ''), [challenge.kind, data]);
   const cells = useMemo(() => (challenge.kind === 'sheets' ? parseCells(data || '{}') : {}), [challenge.kind, data]);
-  if (challenge.kind === 'docs') return <DocCard html={html} width={docWidth} />;
+  if (challenge.kind === 'docs') return <DocCard html={html} width={docWidth} contain={contain} />;
   const { rows, cols } = sheetSize(challenge.cells, cells);
-  return <Fit width={46 + cols * 100} className="preview-sheet"><SheetGrid cells={cells} rows={rows} cols={cols} /></Fit>;
+  return <Fit width={46 + cols * 100} className="preview-sheet" contain={contain}><SheetGrid cells={cells} rows={rows} cols={cols} /></Fit>;
 }
 
 // Cronômetro com anel. O anel anima com stroke-dashoffset (só ele foge da regra transform/opacity).

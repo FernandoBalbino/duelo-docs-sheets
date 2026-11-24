@@ -1,7 +1,7 @@
 // Mensagens entre navegador e servidor. Pequenas de propósito: a banda e as horas do Render free são limitadas.
 import type { Settings } from './rules.ts';
 
-export type Phase = 'lobby' | 'draw' | 'duel' | 'vote' | 'result';
+export type Phase = 'lobby' | 'draw' | 'duel' | 'vote' | 'result' | 'work' | 'reveal' | 'ranking';
 export type Kind = 'docs' | 'sheets';
 export type Side = 'a' | 'b';
 export type Winner = Side | 'tie' | 'none';
@@ -29,6 +29,15 @@ export interface PublicDuel {
   winner: Winner | null;
 }
 
+// Contra todos: um desafio para a turma inteira.
+export interface PublicTask {
+  round: number;
+  challengeId: string;
+  kind: Kind;
+  startsAt: number;
+  endsAt: number;
+}
+
 export interface PublicRoom {
   code: string;
   phase: Phase;
@@ -36,13 +45,15 @@ export interface PublicRoom {
   players: PublicPlayer[];
   duel: PublicDuel | null;
   champions: string[]; // ids de quem chegou na linha de chegada
+  task: PublicTask | null;
+  scores: Record<string, number> | null; // % de cada aluno (calculada pela TV) no ranking
   serverNow: number;
 }
 
 export type Ack<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 type Cb<T = object> = (res: Ack<T>) => void;
 
-export type TeacherAction = 'draw' | 'redraw' | 'endDuel' | 'addTime' | 'endVote' | 'restart' | 'kick';
+export type TeacherAction = 'draw' | 'redraw' | 'endDuel' | 'addTime' | 'endVote' | 'restart' | 'kick' | 'startAll' | 'endWork';
 
 export interface ClientEvents {
   'teacher:create': (p: null, ack: Cb<{ code: string; token: string }>) => void;
@@ -54,6 +65,9 @@ export interface ClientEvents {
   // Sem ack: o duelista manda o documento de tempos em tempos e só a TV recebe.
   'player:content': (p: { round: number; data: string }) => void;
   'player:vote': (p: { side: Side }, ack: Cb) => void;
+  // Contra todos: o progresso inteiro vai uma vez só, no fim (o salvamento por minuto usa player:content).
+  'player:frames': (p: { round: number; frames: string[] }, ack: Cb) => void;
+  'teacher:scores': (p: { scores: Record<string, number> }, ack: Cb) => void;
 }
 
 export interface ServerEvents {
@@ -62,4 +76,6 @@ export interface ServerEvents {
   content: (p: { round: number; id: string; data: string }) => void; // só para a TV
   kicked: () => void;
   idle: () => void; // sala parada: o servidor desconecta todo mundo
+  frames: (p: { round: number; id: string; frames: string[] }) => void; // só para a TV
+  saved: (p: { id: string }) => void; // só para a TV: aluno salvou (sem o conteúdo)
 }

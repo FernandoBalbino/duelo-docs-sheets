@@ -1,10 +1,12 @@
 // Tela da TV (professor): sala de espera, sorteio, duelo lado a lado, votação ao vivo, resultado e corrida.
 import confetti from 'canvas-confetti';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { PublicPlayer, PublicRoom, Side, TeacherAction } from '../../shared/protocol.ts';
+import { CHALLENGES, CHALLENGE_BY_ID } from '../../shared/challenges.ts';
+import type { PublicPlayer, PublicRoom, Side } from '../../shared/protocol.ts';
 import { LIMITS, MODES, fmtClock, type Settings } from '../../shared/rules.ts';
+import { AllWork, Ranking, Reveal } from './AllMode.tsx';
 import { DocsLogo, Icon, SheetsLogo } from './google/ui.tsx';
-import { send, useContent, useTick } from './net.ts';
+import { act, send, useContent, useTick } from './net.ts';
 import Race from './Race.tsx';
 import SlotMachine from './SlotMachine.tsx';
 import { play, toggleMuted, useMuted } from './sound.ts';
@@ -13,14 +15,9 @@ import { Avatar, KIND_LABEL, KindLogo, ModelPreview, Timer, VoteBar, WorkPreview
 const shortUrl = () => `${location.host}${location.pathname}`.replace(/\/$/, '');
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-async function act(action: TeacherAction, playerId?: string) {
-  const res = await send('teacher:action', { action, playerId });
-  if (!res.ok) alert(res.error);
-}
-
 export default function Host({ room }: { room: PublicRoom }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const canSet = room.phase === 'lobby' || room.phase === 'result';
+  const canSet = room.phase === 'lobby' || room.phase === 'result' || room.phase === 'ranking';
   let body: ReactNode;
   switch (room.phase) {
     case 'lobby': body = <Lobby room={room} />; break;
@@ -28,6 +25,9 @@ export default function Host({ room }: { room: PublicRoom }) {
     case 'duel': body = <Arena room={room} />; break;
     case 'vote': body = <Arena room={room} voting />; break;
     case 'result': body = <Result room={room} />; break;
+    case 'work': body = <AllWork room={room} />; break;
+    case 'reveal': body = <Reveal room={room} />; break;
+    case 'ranking': body = <Ranking room={room} />; break;
   }
   return (
     <div className={`tv phase-${room.phase}`}>
@@ -104,13 +104,44 @@ function SettingsPanel({ s }: { s: Settings }) {
   return (
     <div className="settings">
       <h3><Icon name="settings" /> Configurações</h3>
-      <Stepper label="Tempo do desafio" value={s.duelSeconds} min={LIMITS.duelSeconds[0]} max={LIMITS.duelSeconds[1]} step={30}
-        show={(v) => fmtClock(v * 1000)} onChange={(v) => set({ duelSeconds: v })} />
-      <Stepper label="Tempo de votação" value={s.voteSeconds} min={LIMITS.voteSeconds[0]} max={LIMITS.voteSeconds[1]} step={5}
-        show={(v) => `${v} s`} onChange={(v) => set({ voteSeconds: v })} />
-      <Stepper label="Vitórias para ser campeão" value={s.target} min={LIMITS.target[0]} max={LIMITS.target[1]} step={1}
-        show={(v) => String(v)} onChange={(v) => set({ target: v })} />
-      <div className="seg" role="radiogroup" aria-label="Tipo de desafio">
+      <div className="seg game-seg" role="radiogroup" aria-label="Modo de jogo">
+        <div>
+          <button type="button" role="radio" aria-checked={s.game === 'duel'} className={s.game === 'duel' ? 'on' : ''} onClick={() => set({ game: 'duel' })}>
+            <Icon name="casino" size={18} /> Duelo
+          </button>
+          <button type="button" role="radio" aria-checked={s.game === 'all'} className={s.game === 'all' ? 'on' : ''} onClick={() => set({ game: 'all' })}>
+            <Icon name="groups" size={18} /> Contra todos
+          </button>
+        </div>
+      </div>
+      {s.game === 'duel' ? (
+        <>
+          <Stepper label="Tempo do desafio" value={s.duelSeconds} min={LIMITS.duelSeconds[0]} max={LIMITS.duelSeconds[1]} step={30}
+            show={(v) => fmtClock(v * 1000)} onChange={(v) => set({ duelSeconds: v })} />
+          <Stepper label="Tempo de votação" value={s.voteSeconds} min={LIMITS.voteSeconds[0]} max={LIMITS.voteSeconds[1]} step={5}
+            show={(v) => `${v} s`} onChange={(v) => set({ voteSeconds: v })} />
+          <Stepper label="Vitórias para ser campeão" value={s.target} min={LIMITS.target[0]} max={LIMITS.target[1]} step={1}
+            show={(v) => String(v)} onChange={(v) => set({ target: v })} />
+        </>
+      ) : (
+        <>
+          <Stepper label="Tempo da partida" value={s.allMinutes} min={5} max={LIMITS.allMinutes[1]} step={5}
+            show={(v) => `${v} min`} onChange={(v) => set({ allMinutes: v })} />
+          <label className="pick">
+            <span>Desafio</span>
+            <select value={s.pick} onChange={(e) => set({ pick: e.target.value })}>
+              <option value="intermediario">Sortear um intermediário</option>
+              <option value="basico">Sortear um básico</option>
+              {(['intermediario', 'basico'] as const).flatMap((level) => (['docs', 'sheets'] as const).map((kind) => (
+                <optgroup key={level + kind} label={`${kind === 'docs' ? 'Documentos' : 'Planilhas'} · ${level === 'basico' ? 'básico' : 'intermediário'}`}>
+                  {CHALLENGES.filter((c) => c.kind === kind && c.level === level).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+                </optgroup>
+              )))}
+            </select>
+          </label>
+        </>
+      )}
+      {(s.game === 'duel' || !CHALLENGE_BY_ID.has(s.pick)) && <div className="seg" role="radiogroup" aria-label="Tipo de desafio">
         <span>Tipo de desafio</span>
         <div>
           {MODES.map((m) => (
@@ -119,13 +150,17 @@ function SettingsPanel({ s }: { s: Settings }) {
             </button>
           ))}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
 
 function Lobby({ room }: { room: PublicRoom }) {
   const online = room.players.filter((p) => p.online).length;
+  const all = room.settings.game === 'all';
+  const steps = all
+    ? ['Todos recebem o mesmo modelo', 'Cada um recria no Docs ou no Sheets', 'A TV mostra o replay e a % de cada um', 'Ranking de quem chegou mais perto']
+    : ['A máquina sorteia dois rivais', 'A dupla recria o modelo no Docs ou no Sheets', 'A turma vota em quem ficou mais parecido', 'Quem vence avança até a linha de chegada'];
   return (
     <div className="lobby">
       <section className="lobby-hero">
@@ -135,19 +170,22 @@ function Lobby({ room }: { room: PublicRoom }) {
         <div className="code-tiles" aria-label={`Código ${room.code}`}>
           {room.code.split('').map((ch, i) => <span key={i} style={{ ['--i' as string]: i }}>{ch}</span>)}
         </div>
-        <ol className="lobby-steps">
-          <li><b>1</b> A máquina sorteia dois rivais</li>
-          <li><b>2</b> A dupla recria o modelo no Docs ou no Sheets</li>
-          <li><b>3</b> A turma vota em quem ficou mais parecido</li>
-          <li><b>4</b> Quem vence avança até a linha de chegada</li>
+        <ol className="lobby-steps" key={room.settings.game}>
+          {steps.map((text, i) => <li key={text}><b>{i + 1}</b> {text}</li>)}
         </ol>
       </section>
       <aside className="lobby-side">
         <SettingsPanel s={room.settings} />
-        <button type="button" className="btn primary big draw-btn" disabled={online < 2} onClick={() => act('draw')}>
-          <Icon name="casino" size={26} /> Sortear duelo
-        </button>
-        {online < 2 && <p className="hint">Precisa de pelo menos 2 alunos conectados.</p>}
+        {all ? (
+          <button type="button" className="btn primary big draw-btn" disabled={online < 1} onClick={() => act('startAll')}>
+            <Icon name="groups" size={26} /> Começar para todos
+          </button>
+        ) : (
+          <button type="button" className="btn primary big draw-btn" disabled={online < 2} onClick={() => act('draw')}>
+            <Icon name="casino" size={26} /> Sortear duelo
+          </button>
+        )}
+        {online < (all ? 1 : 2) && <p className="hint">Precisa de pelo menos {all ? 'um aluno conectado' : '2 alunos conectados'}.</p>}
       </aside>
       <section className="lobby-players">
         <h3><Icon name="groups" /> {room.players.length ? `${room.players.length} na sala` : 'Esperando os alunos…'}</h3>
